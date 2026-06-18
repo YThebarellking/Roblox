@@ -630,82 +630,85 @@ local function fireSignal(signalFunc, ...)
 end
 
 -- === ОБНОВЛЁННАЯ ФУНКЦИЯ addLog ===
-function addLog(pName, purchasedId, wasPurchased, price)
-	local Response = Instance.new("Frame")
-	Response.Active = true
-	Response.Selectable = true
-	Response.BackgroundTransparency = 0.75
-	Response.Name = "Response"
-	Response.Size = UDim2.new(0, 464, 0, 48)
-	Response.BorderColor3 = Color3.fromRGB(0, 0, 0)
-	Response.BorderSizePixel = 0
-	Response.BackgroundColor3 = Color3.fromRGB(90, 99, 109)
-	Response.Parent = listenerTabFrame
+function addLog(pName, purchasedId, wasPurchased, price, productName)
+    local Response = Instance.new("Frame")
+    Response.Active = true
+    Response.Selectable = true
+    Response.BackgroundTransparency = 0.75
+    Response.Name = "Response"
+    Response.Size = UDim2.new(0, 464, 0, 48)
+    Response.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    Response.BorderSizePixel = 0
+    Response.BackgroundColor3 = Color3.fromRGB(90, 99, 109)
+    Response.Parent = listenerTabFrame
 
-	local UICorner = Instance.new("UICorner")
-	UICorner.CornerRadius = UDim.new(0, 6)
-	UICorner.Parent = Response
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 6)
+    UICorner.Parent = Response
 
-	local UIStroke = Instance.new("UIStroke")
-	UIStroke.Color = Color3.fromRGB(154, 154, 154)
-	UIStroke.BorderStrokePosition = Enum.BorderStrokePosition.Inner
-	UIStroke.Parent = Response
+    local UIStroke = Instance.new("UIStroke")
+    UIStroke.Color = Color3.fromRGB(154, 154, 154)
+    UIStroke.BorderStrokePosition = Enum.BorderStrokePosition.Inner
+    UIStroke.Parent = Response
 
-	local timeStr = os.date("%H:%M:%S")
-	local ProductName = Instance.new("TextLabel")
-	ProductName.TextWrapped = true
-	ProductName.Name = "ProductName"
-	ProductName.TextColor3 = Color3.fromRGB(255, 255, 255)
-	ProductName.BorderColor3 = Color3.fromRGB(0, 0, 0)
-	ProductName.Text = string.format("[%s] %s", timeStr, pName)
-	ProductName.Size = UDim2.new(0, 287, 0, 15)
-	ProductName.Position = UDim2.new(0.3402802050113678, 0, 0.375, 0)
-	ProductName.AnchorPoint = Vector2.new(0.5, 0.5)
-	ProductName.BorderSizePixel = 0
-	ProductName.BackgroundTransparency = 1
-	ProductName.TextXAlignment = Enum.TextXAlignment.Left
-	ProductName.TextScaled = true
-	ProductName.FontFace = Font.new("rbxasset://fonts/families/Inconsolata.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-	ProductName.TextSize = 14
-	ProductName.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	ProductName.Parent = Response
+    local timeStr = os.date("%H:%M:%S")
+    local displayName = pName or "Unknown"
 
-	local ProductID = Instance.new("TextLabel")
-	ProductID.TextWrapped = true
-	ProductID.Name = "ProductID"
-	ProductID.TextColor3 = Color3.fromRGB(255, 201, 37)
-	ProductID.BorderColor3 = Color3.fromRGB(0, 0, 0)
-	ProductID.Text = string.format("ID: %d | Price: %d", purchasedId, price or 0)
-	ProductID.Size = UDim2.new(0, 287, 0, 15)
-	ProductID.Position = UDim2.new(0.3402802050113678, 0, 0.6875, 0)
-	ProductID.AnchorPoint = Vector2.new(0.5, 0.5)
-	ProductID.BorderSizePixel = 0
-	ProductID.BackgroundTransparency = 1
-	ProductID.TextXAlignment = Enum.TextXAlignment.Left
-	ProductID.TextScaled = true
-	ProductID.FontFace = Font.new("rbxasset://fonts/families/Inconsolata.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-	ProductID.TextSize = 14
-	ProductID.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	ProductID.Parent = Response
+    local ProductName = Instance.new("TextLabel")
+    ProductName.TextWrapped = true
+    ProductName.Name = "ProductName"
+    ProductName.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ProductName.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    ProductName.Text = string.format("[%s] %s", timeStr, displayName)
+    ProductName.Size = UDim2.new(0, 287, 0, 15)
+    ProductName.Position = UDim2.new(0.3402802050113678, 0, 0.375, 0)
+    ProductName.AnchorPoint = Vector2.new(0.5, 0.5)
+    ProductName.BorderSizePixel = 0
+    ProductName.BackgroundTransparency = 1
+    ProductName.TextXAlignment = Enum.TextXAlignment.Left
+    ProductName.TextScaled = true
+    ProductName.FontFace = Font.new("rbxasset://fonts/families/Inconsolata.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+    ProductName.TextSize = 14
+    ProductName.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    ProductName.Parent = Response
 
-	local UIGradient = Instance.new("UIGradient")
-	UIGradient.Rotation = -90
-	UIGradient.Color = ColorSequence.new{
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(163, 163, 163)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
-	}
-	UIGradient.Parent = Response
+    local ProductID = Instance.new("TextLabel")
+    ProductID.TextWrapped = true
+    ProductID.Name = "ProductID"
+    ProductID.TextColor3 = Color3.fromRGB(255, 201, 37)
+    ProductID.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    ProductID.Text = string.format("ID: %d | Price: %d", purchasedId, price or 0)
+    ProductID.Size = UDim2.new(0, 287, 0, 15)
+    ProductID.Position = UDim2.new(0.3402802050113678, 0, 0.6875, 0)
+    ProductID.AnchorPoint = Vector2.new(0.5, 0.5)
+    ProductID.BorderSizePixel = 0
+    ProductID.BackgroundTransparency = 1
+    ProductID.TextXAlignment = Enum.TextXAlignment.Left
+    ProductID.TextScaled = true
+    ProductID.FontFace = Font.new("rbxasset://fonts/families/Inconsolata.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+    ProductID.TextSize = 14
+    ProductID.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    ProductID.Parent = Response
 
-	local OpenProduct = Instance.new("ImageButton")
-	OpenProduct.ImageTransparency = 1
-	OpenProduct.BorderColor3 = Color3.fromRGB(0, 0, 0)
-	OpenProduct.AnchorPoint = Vector2.new(0.5, 0.5)
-	OpenProduct.Name = "OpenProduct"
-	OpenProduct.Position = UDim2.new(0.9481724500656128, 0, 0.5, 0)
-	OpenProduct.Size = UDim2.new(0, 30, 0, 30)
-	OpenProduct.BorderSizePixel = 0
-	OpenProduct.BackgroundColor3 = Color3.fromRGB(90, 99, 109)
-	OpenProduct.Parent = Response
+    local UIGradient = Instance.new("UIGradient")
+    UIGradient.Rotation = -90
+    UIGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(163, 163, 163)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+    }
+    UIGradient.Parent = Response
+
+    -- Кнопка открытия продукта
+    local OpenProduct = Instance.new("ImageButton")
+    OpenProduct.ImageTransparency = 1
+    OpenProduct.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    OpenProduct.AnchorPoint = Vector2.new(0.5, 0.5)
+    OpenProduct.Name = "OpenProduct"
+    OpenProduct.Position = UDim2.new(0.9481724500656128, 0, 0.5, 0)
+    OpenProduct.Size = UDim2.new(0, 30, 0, 30)
+    OpenProduct.BorderSizePixel = 0
+    OpenProduct.BackgroundColor3 = Color3.fromRGB(90, 99, 109)
+    OpenProduct.Parent = Response
 
 	local UICorner = Instance.new("UICorner")
 	UICorner.CornerRadius = UDim.new(0, 6)
@@ -887,3 +890,61 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(player, purcha
 end)
 
 print("Product Faker loaded. Improvements: delays, product info, notifications, multiple IDs, bulk count.")
+
+-- === ПРОСЛУШИВАНИЕ ВСЕХ ТИПОВ ПОКУПОК ===
+local function onPurchaseFinished(eventName, ...)
+    local args = {...}
+    local playerOrUserId, productId, wasPurchased
+
+    -- Определяем сигнатуру события
+    if eventName == "PromptProductPurchaseFinished" then
+        playerOrUserId, productId, wasPurchased = args[1], args[2], args[3]
+    elseif eventName == "PromptGamePassPurchaseFinished" then
+        playerOrUserId, productId, wasPurchased = args[1], args[2], args[3] -- первый параметр - игрок
+    elseif eventName == "PromptBulkPurchaseFinished" then
+        playerOrUserId, productId, wasPurchased = args[1], args[2], args[3]
+    elseif eventName == "PromptPurchaseFinished" then
+        playerOrUserId, productId, wasPurchased = args[1], args[2], args[3]
+    else
+        return
+    end
+
+    -- Фильтруем только отмены (если нужно) – раскомментируйте строку ниже, если хотите видеть только отмены
+    -- if wasPurchased then return end
+
+    -- Получаем имя игрока (если передан объект Player)
+    local playerName = (type(playerOrUserId) == "userdata" and playerOrUserId.Name) or tostring(playerOrUserId)
+
+    -- Получаем имя и цену продукта (опционально)
+    local productName, price = "Unknown", 0
+    local success, info = pcall(function()
+        return game:GetService("MarketplaceService"):GetProductInfo(productId)
+    end)
+    if success and info then
+        productName = info.Name or "Unknown"
+        price = info.PriceInRobux or 0
+    end
+
+    print(string.format("[%s] %s | ID: %d | Price: %d | WasPurchased: %s", 
+        os.date("%H:%M:%S"), productName, productId, price, tostring(wasPurchased)))
+
+    -- Добавляем запись в Listener
+    addLog(playerName, productId, wasPurchased, price, productName)
+end
+
+-- Подключаем события
+MarketplaceService.PromptProductPurchaseFinished:Connect(function(player, productId, wasPurchased)
+    onPurchaseFinished("PromptProductPurchaseFinished", player, productId, wasPurchased)
+end)
+
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
+    onPurchaseFinished("PromptGamePassPurchaseFinished", player, gamePassId, wasPurchased)
+end)
+
+MarketplaceService.PromptBulkPurchaseFinished:Connect(function(userId, productId, wasPurchased)
+    onPurchaseFinished("PromptBulkPurchaseFinished", userId, productId, wasPurchased)
+end)
+
+MarketplaceService.PromptPurchaseFinished:Connect(function(userId, productId, wasPurchased)
+    onPurchaseFinished("PromptPurchaseFinished", userId, productId, wasPurchased)
+end)
