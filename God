@@ -1,103 +1,133 @@
 --[[
-    СКРИПТ БЕССМЕРТИЯ ДЛЯ DELTA EXECUTOR
-    Как работает: Создает клона персонажа. При получении смертельного урона
-    мгновенно заменяет текущего персонажа на клона.
+    УЛУЧШЕННЫЙ СКРИПТ БЕССМЕРТИЯ ДЛЯ DELTA EXECUTOR
+    Версия 2.0 с учётом всех замечаний по качеству кода
 --]]
 
--- Ждем, пока персонаж игрока полностью загрузится
 local player = game.Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local coreGui = game:GetService("CoreGui")
 
--- Переменная для хранения клона
-local clone = nil
--- Флаг, чтобы не было бесконечного цикла при замене
-local isRespawning = false
-
--- Функция для создания "резервной копии" персонажа
-local function createBackup()
-    -- Проверяем, существует ли персонаж и можно ли его клонировать
-    if not player.Character then return end
-    
-    -- Включаем возможность клонирования (обязательно для клиента)
-    player.Character.Archivable = true
-    
-    -- Создаем клона
-    clone = player.Character:Clone()
-    
-    -- Отключаем возможность клонирования у оригинала обратно
-    player.Character.Archivable = false
-    
-    -- Прячем клона в специальном контейнере, чтобы он не мешался
-    -- Если папки нет - создаем
-    local backupFolder = workspace:FindFirstChild("__BACKUPS__")
-    if not backupFolder then
-        backupFolder = Instance.new("Folder")
-        backupFolder.Name = "__BACKUPS__"
-        backupFolder.Parent = workspace
-    end
-    
-    -- Помещаем клона в папку и делаем невидимым
-    clone.Parent = backupFolder
-    clone.Archivable = false -- Чтобы его самого нельзя было клонировать лишний раз
+-- Выбираем хранилище для клонов (ReplicatedStorage предпочтительнее, CoreGui — запасной вариант)
+local backupContainer = replicatedStorage:FindFirstChild("__BACKUPS__") or Instance.new("Folder")
+if not backupContainer.Parent then
+    backupContainer.Name = "__BACKUPS__"
+    backupContainer.Parent = replicatedStorage  -- или coreGui, если replicatedStorage недоступен
 end
 
--- Функция "воскрешения" (замены на клона)
-local function respawnFromClone()
+local clone = nil
+local isRespawning = false
+local healthConnection = nil
+local updateLoop = nil
+
+-- Функция создания резервной копии
+local function createBackup()
+    if isRespawning then return end
+
+    local character = player.Character
+    if not character then return end
+
+    -- Удаляем старый клон, чтобы не плодить мусор
+    if clone then
+        clone:Destroy()
+        clone = nil
+    end
+
+    -- Проверяем, что персонаж можно клонировать
+    if not character.Archivable then
+        character.Archivable = true
+    end
+
+    local newClone = character:Clone()
+    character.Archivable = false
+
+    -- Проверяем наличие Humanoid у клона
+    local cloneHumanoid = newClone:FindFirstChildOfClass("Humanoid")
+    if not cloneHumanoid then
+        newClone:Destroy()
+        return
+    end
+
+    -- Прячем клон в контейнере
+    newClone.Parent = backupContainer
+    newClone.Archivable = false  -- чтобы его самого не клонировали
+
+    clone = newClone
+end
+
+-- Функция переключения на клона
+local function switchToClone()
     if isRespawning or not clone then return end
     isRespawning = true
-    
-    -- Уничтожаем текущего персонажа
-    if player.Character then
-        player.Character:Destroy()
+
+    local currentChar = player.Character
+    if currentChar then
+        -- Сохраняем позицию и поворот текущего персонажа
+        local oldCFrame = currentChar:GetPivot()
+        
+        -- Уничтожаем старого персонажа
+        currentChar:Destroy()
+        
+        -- Перемещаем клона в мир и ставим на место оригинала
+        clone:PivotTo(oldCFrame)
+        clone.Parent = workspace
+        player.Character = clone
+    else
+        -- Если персонажа не было, просто ставим клона в случайное место
+        clone.Parent = workspace
+        player.Character = clone
     end
-    
-    -- Достаем клона из папки и перемещаем в мир
-    clone.Parent = workspace
-    
-    -- Назначаем его новым персонажем игрока
-    player.Character = clone
-    
+
     -- Обнуляем ссылку на клона (он теперь используется)
     clone = nil
-    
-    -- Небольшая пауза, чтобы игра успела обработать события
-    task.wait(0.2)
-    
-    -- Создаем нового клона для следующего раза
-    createBackup()
-    
     isRespawning = false
+
+    -- Создаём нового клона для следующего раза с небольшой задержкой
+    task.wait(0.2)
+    createBackup()
 end
 
--- Создаем первого клона сразу после запуска скрипта
-createBackup()
+-- Функция подключения обработчика смерти
+local function onCharacterAdded(character)
+    -- Отключаем старый обработчик, чтобы избежать утечек
+    if healthConnection then
+        healthConnection:Disconnect()
+        healthConnection = nil
+    end
 
--- Отслеживаем изменение здоровья
-humanoid:GetPropertyChangedSignal("Health"):Connect(function()
-    -- Если здоровье упало до 0 или ниже, и у нас есть клон
-    if humanoid.Health <= 0 and clone and not isRespawning then
-        respawnFromClone()
+    local humanoid = character:WaitForChild("Humanoid")
+    
+    -- Используем событие Died вместо постоянного отслеживания Health
+    healthConnection = humanoid.Died:Connect(function()
+        -- Защита от ошибок: если клон удалился или его нет
+        if not clone or not clone.Parent then
+            createBackup()
+            return
+        end
+        
+        if not isRespawning then
+            switchToClone()
+        end
+    end)
+
+    -- Создаём первого клона для нового персонажа
+    createBackup()
+end
+
+-- Запуск при первом появлении персонажа
+if player.Character then
+    onCharacterAdded(player.Character)
+else
+    player.CharacterAdded:Connect(onCharacterAdded)
+end
+
+-- Периодическое обновление клона (раз в 10 секунд), чтобы он был актуален
+-- (например, если игрок подобрал новый предмет или изменил внешность)
+task.spawn(function()
+    while task.wait(10) do
+        if not isRespawning and player.Character then
+            createBackup()
+        end
     end
 end)
 
--- Если персонаж был удален не из-за нашей замены (например, админ кикнул),
--- пересоздаем систему заново
-player.CharacterAdded:Connect(function(newChar)
-    -- Ждем появления нового персонажа и переподключаем события
-    task.wait(0.5)
-    character = newChar
-    humanoid = character:WaitForChild("Humanoid")
-    
-    -- Создаем клона для нового персонажа
-    createBackup()
-    
-    -- Переподключаем отслеживание здоровья
-    humanoid:GetPropertyChangedSignal("Health"):Connect(function()
-        if humanoid.Health <= 0 and clone and not isRespawning then
-            respawnFromClone()
-        end
-    end)
-end)
-
-print("Скрипт бессмертия активирован! (Delta Executor)")
+print("✅ Улучшенный скрипт бессмертия активирован (Delta Executor)")
