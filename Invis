@@ -1,29 +1,33 @@
--- LocalScript (вставьте в StarterGui или StarterPlayerScripts)
+-- ================================================================
+-- Скрипт "Режим призрака" с графической кнопкой (LocalScript)
+-- Работает по клику мыши или касанию пальцем на мобильных
+-- ================================================================
+
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local UserInputService = game:GetService("UserInputService")
 
-local isGhost = false  -- состояние: true = невидим для триггеров
+local isGhost = false  -- true = режим включён (блокировка триггеров)
 
--- ===== СОЗДАНИЕ GUI КНОПКИ =====
+-- ===== СОЗДАНИЕ КНОПКИ =====
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "GhostModeGUI"
-screenGui.Parent = player.PlayerGui  -- или player:WaitForChild("PlayerGui")
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local button = Instance.new("TextButton")
 button.Name = "GhostButton"
-button.Size = UDim2.new(0, 150, 0, 50)
-button.Position = UDim2.new(0, 10, 0, 10)  -- левый верхний угол
-button.BackgroundColor3 = Color3.fromRGB(0, 170, 0)  -- зелёный (выкл)
+button.Size = UDim2.new(0, 160, 0, 50)
+button.Position = UDim2.new(0, 10, 0, 10)
+button.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
 button.TextColor3 = Color3.fromRGB(255, 255, 255)
 button.TextScaled = true
 button.Font = Enum.Font.SourceSansBold
 button.Text = "Призрак: ВЫКЛ"
 button.Parent = screenGui
 
--- ===== ФУНКЦИИ БЛОКИРОВКИ =====
+-- ===== БЛОКИРУЮЩИЕ ФУНКЦИИ =====
 
--- 1. Отключение CanTouch у всех частей персонажа
+-- 1. Отключаем CanTouch у всех частей персонажа
 local function setCanTouch(state)
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -39,7 +43,7 @@ player.CharacterAdded:Connect(function(newChar)
     end
 end)
 
--- 2. Блокировка инструментов (Enabled = false)
+-- 2. Блокируем инструменты (нельзя поднять/использовать)
 local function setToolsEnabled(state)
     for _, tool in ipairs(player.Backpack:GetChildren()) do
         if tool:IsA("Tool") then
@@ -61,7 +65,7 @@ end
 player.Backpack.ChildAdded:Connect(onToolAdded)
 character.ChildAdded:Connect(onToolAdded)
 
--- 3. Отключение ClickDetectors
+-- 3. Отключаем ClickDetectors
 local function setClickDetectorsEnabled(state)
     for _, detector in ipairs(workspace:GetDescendants()) do
         if detector:IsA("ClickDetector") then
@@ -76,7 +80,7 @@ workspace.DescendantAdded:Connect(function(obj)
     end
 end)
 
--- 4. Блокировка RemoteEvent / RemoteFunction (перехват вызовов)
+-- 4. Блокируем удалённые вызовы (RemoteEvent / RemoteFunction)
 local originals = {}
 local function patchRemote(obj)
     if originals[obj] then return end
@@ -106,26 +110,22 @@ game.DescendantAdded:Connect(patchRemote)
 local function toggleGhost()
     isGhost = not isGhost
 
-    -- Обновляем блокировки
     setCanTouch(not isGhost)
     setToolsEnabled(not isGhost)
     setClickDetectorsEnabled(not isGhost)
-    -- Remote блокируются автоматически через isGhost
 
-    -- Меняем внешний вид кнопки
     if isGhost then
-        button.BackgroundColor3 = Color3.fromRGB(200, 0, 0)  -- красный
+        button.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
         button.Text = "Призрак: ВКЛ"
     else
-        button.BackgroundColor3 = Color3.fromRGB(0, 170, 0)  -- зелёный
+        button.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
         button.Text = "Призрак: ВЫКЛ"
     end
 end
 
--- Назначаем обработчик нажатия на кнопку (работает и на мобильных)
 button.MouseButton1Click:Connect(toggleGhost)
 
--- Инициализация: режим выключен (всё работает)
+-- Инициализация (режим выключен)
 setCanTouch(true)
 setToolsEnabled(true)
 setClickDetectorsEnabled(true)
