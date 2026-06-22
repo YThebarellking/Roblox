@@ -1,6 +1,6 @@
 -- =====================================================
 -- Скрипт подмены внешности, имени и аватарок (с GUI)
--- Добавлена кнопка для вставки символа  (Roblox checkmark)
+-- Автоматическое добавление символа  к нику
 -- =====================================================
 
 getgenv().username = getgenv().username or getgenv().Xiar_TargetUser or "Builderman"
@@ -19,7 +19,7 @@ local currentSpoofAll = SPOOF_ALL
 local spoofConnections = {}
 local isRunning = false
 
--- Символ галочки Roblox (U+E000)
+-- Символ галочки (Roblox)
 local CHECKMARK = ""
 
 -- ========== Восстановление оригиналов ==========
@@ -144,12 +144,20 @@ local function handleHead(char, appearance)
     end
 end
 
+-- ========== Применение внешности (с ожиданием персонажа) ==========
 local function applyAppearance(userId)
+    local char = LP.Character
+    if not char then
+        char = LP.CharacterAdded:Wait()
+    end
+    -- Ждём, пока персонаж полностью загрузится
+    repeat task.wait() until char:FindFirstChildOfClass("Humanoid") and char:FindFirstChild("Head")
+    
     local success, appearance = pcall(function()
         return Players:GetCharacterAppearanceAsync(userId)
     end)
     if not success or not appearance then return end
-    local char = LP.Character or LP.CharacterAdded:Wait()
+    
     local hum = char:FindFirstChildOfClass("Humanoid")
     clearCharacter(char)
     for _, obj in ipairs(appearance:GetChildren()) do
@@ -169,18 +177,18 @@ local function applyAppearance(userId)
     handleHead(char, appearance)
 end
 
--- ========== Подмена имени с добавлением галочки ==========
-local function applyName(fakeName, addCheckmark)
-    local displayName = fakeName
-    if addCheckmark then
-        displayName = fakeName .. CHECKMARK
+-- ========== Применение имени (с добавлением галочки) ==========
+local function applyName(fakeName)
+    -- Добавляем символ  в конец, если его нет
+    if not fakeName:find(CHECKMARK) then
+        fakeName = fakeName .. CHECKMARK
     end
-    pcall(function() LP.DisplayName = displayName end)
+    pcall(function() LP.DisplayName = fakeName end)
     local function applyToChar(char)
-        pcall(function() char.Name = displayName end)
+        pcall(function() char.Name = fakeName end)
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
-            pcall(function() hum.DisplayName = displayName end)
+            pcall(function() hum.DisplayName = fakeName end)
         end
     end
     if LP.Character then applyToChar(LP.Character) end
@@ -190,12 +198,8 @@ local function applyName(fakeName, addCheckmark)
     end)
 end
 
--- ========== Подмена текста (с учётом галочки) ==========
-local function startTextSpoof(fakeName, addCheckmark)
-    local displayName = fakeName
-    if addCheckmark then
-        displayName = fakeName .. CHECKMARK
-    end
+-- ========== Подмена текста ==========
+local function startTextSpoof(fakeName)
     local function replace(obj)
         if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
         if not obj:GetAttribute("OriginalText") then
@@ -205,10 +209,10 @@ local function startTextSpoof(fakeName, addCheckmark)
         local new = orig
         if currentSpoofAll then
             for _, plr in ipairs(Players:GetPlayers()) do
-                new = new:gsub(plr.Name, displayName)
+                new = new:gsub(plr.Name, fakeName)
             end
         else
-            new = new:gsub(LP.Name, displayName)
+            new = new:gsub(LP.Name, fakeName)
         end
         if new ~= obj.Text then
             obj.Text = new
@@ -255,7 +259,7 @@ local function startHeadshotSpoof(userId)
 end
 
 -- ========== Основная функция запуска ==========
-local function startSpoof(targetName, spoofAll, addCheckmark)
+local function startSpoof(targetName, spoofAll)
     stopSpoof()
     currentTarget = targetName
     currentSpoofAll = spoofAll
@@ -271,20 +275,25 @@ local function startSpoof(targetName, spoofAll, addCheckmark)
     local fakeName = getDisplayName(userId)
     isRunning = true
 
+    -- Применяем внешность (ждём загрузки)
     applyAppearance(userId)
-    applyName(fakeName, addCheckmark)
-    startTextSpoof(fakeName, addCheckmark)
+    -- Применяем имя с галочкой
+    applyName(fakeName)
+    -- Подменяем тексты и аватарки
+    startTextSpoof(fakeName)
     startHeadshotSpoof(userId)
 
+    -- Обработка респавна
     local charAddedConn = LP.CharacterAdded:Connect(function()
-        task.wait(0.01)
+        task.wait(0.1) -- небольшая задержка для загрузки
         if isRunning then
             applyAppearance(userId)
-            applyName(fakeName, addCheckmark)
+            applyName(fakeName)
         end
     end)
     table.insert(spoofConnections, charAddedConn)
 
+    -- Показываем галочку статуса
     local gui = PlayerGui:FindFirstChild("SpoofGUI")
     if gui then
         local check = gui:FindFirstChild("StatusCheck")
@@ -302,8 +311,8 @@ local function createGUI()
     screenGui.Parent = PlayerGui
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 340, 0, 170)
-    frame.Position = UDim2.new(0.5, -170, 0.5, -85)
+    frame.Size = UDim2.new(0, 300, 0, 170)
+    frame.Position = UDim2.new(0.5, -150, 0.5, -85)
     frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     frame.BackgroundTransparency = 0.1
     frame.BorderSizePixel = 1
@@ -324,7 +333,7 @@ local function createGUI()
 
     -- Поле ввода
     local textBox = Instance.new("TextBox")
-    textBox.Size = UDim2.new(0.5, 0, 0, 30)
+    textBox.Size = UDim2.new(0.7, 0, 0, 30)
     textBox.Position = UDim2.new(0.05, 0, 0.35, 0)
     textBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
     textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -335,37 +344,10 @@ local function createGUI()
     textBox.TextSize = 16
     textBox.Parent = frame
 
-    -- Кнопка вставки галочки (символ )
-    local checkmarkBtn = Instance.new("TextButton")
-    checkmarkBtn.Size = UDim2.new(0, 30, 0, 30)
-    checkmarkBtn.Position = UDim2.new(0.57, 0, 0.35, 0)
-    checkmarkBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
-    checkmarkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    checkmarkBtn.Text = CHECKMARK
-    checkmarkBtn.TextSize = 20
-    checkmarkBtn.Font = Enum.Font.Gotham
-    checkmarkBtn.AutoButtonColor = true
-    checkmarkBtn.Parent = frame
-
-    -- Индикатор активности (галочка, но уже есть кнопка, поэтому используем другой элемент)
-    -- Мы используем statusCheck как отдельный индикатор, он будет сверху справа или где-то ещё
-    -- Но для простоты сделаем его как текст, который появляется рядом с полем ввода
-    local statusCheck = Instance.new("TextLabel")
-    statusCheck.Name = "StatusCheck"
-    statusCheck.Size = UDim2.new(0, 20, 0, 20)
-    statusCheck.Position = UDim2.new(0.73, 0, 0.35, 5)
-    statusCheck.BackgroundTransparency = 1
-    statusCheck.Text = "✓" -- обычная галочка для индикации работы
-    statusCheck.TextColor3 = Color3.fromRGB(0, 255, 0)
-    statusCheck.TextSize = 18
-    statusCheck.TextScaled = true
-    statusCheck.Visible = false
-    statusCheck.Parent = frame
-
     -- Кнопка "Применить"
     local applyBtn = Instance.new("TextButton")
-    applyBtn.Size = UDim2.new(0.16, 0, 0, 30)
-    applyBtn.Position = UDim2.new(0.78, 0, 0.35, 0)
+    applyBtn.Size = UDim2.new(0.2, 0, 0, 30)
+    applyBtn.Position = UDim2.new(0.77, 0, 0.35, 0)
     applyBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
     applyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     applyBtn.Text = "Применить"
@@ -386,21 +368,21 @@ local function createGUI()
     checkBox.AutoButtonColor = true
     checkBox.Parent = frame
 
-    -- Чекбокс "Добавить галочку к нику"
-    local checkmarkToggle = Instance.new("TextButton")
-    checkmarkToggle.Size = UDim2.new(0.4, 0, 0, 25)
-    checkmarkToggle.Position = UDim2.new(0.55, 0, 0.7, 0)
-    checkmarkToggle.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    checkmarkToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-    checkmarkToggle.Text = "Добавить : ВЫКЛ"
-    checkmarkToggle.Font = Enum.Font.Gotham
-    checkmarkToggle.TextSize = 12
-    checkmarkToggle.AutoButtonColor = true
-    checkmarkToggle.Parent = frame
+    -- Индикатор активности (галочка статуса)
+    local statusCheck = Instance.new("TextButton")
+    statusCheck.Name = "StatusCheck"
+    statusCheck.Size = UDim2.new(0, 25, 0, 25)
+    statusCheck.Position = UDim2.new(0.73, 0, 0.35, 2) -- сдвинута, чтобы не мешать кнопке
+    statusCheck.BackgroundTransparency = 1
+    statusCheck.Text = "✓"
+    statusCheck.TextColor3 = Color3.fromRGB(0, 255, 0)
+    statusCheck.TextSize = 24
+    statusCheck.TextScaled = true
+    statusCheck.Visible = false
+    statusCheck.AutoButtonColor = false
+    statusCheck.Parent = frame
 
     local spoofAllState = currentSpoofAll
-    local addCheckmarkState = false
-
     local function updateCheckBox()
         if spoofAllState then
             checkBox.Text = "Подменять всех: ВКЛ"
@@ -412,24 +394,7 @@ local function createGUI()
     end
     updateCheckBox()
 
-    local function updateCheckmarkToggle()
-        if addCheckmarkState then
-            checkmarkToggle.Text = "Добавить : ВКЛ"
-            checkmarkToggle.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
-        else
-            checkmarkToggle.Text = "Добавить : ВЫКЛ"
-            checkmarkToggle.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        end
-    end
-    updateCheckmarkToggle()
-
-    -- Обработчик кнопки вставки галочки в поле ввода
-    checkmarkBtn.MouseButton1Click:Connect(function()
-        textBox.Text = textBox.Text .. CHECKMARK
-        textBox.CursorPosition = #textBox.Text + 1
-    end)
-
-    -- Обработчик клика по статусной галочке (остановка)
+    -- Клик по галочке → остановка
     statusCheck.MouseButton1Click:Connect(function()
         if isRunning then
             stopSpoof()
@@ -444,35 +409,22 @@ local function createGUI()
             textBox.PlaceholderText = "Введите ник!"
             return
         end
-        -- Удаляем все символы галочки из ввода, чтобы получить чистое имя для поиска
-        local cleanName = newName:gsub(CHECKMARK, "")
-        if cleanName == "" then
-            textBox.PlaceholderText = "Введите ник без галочки!"
-            return
-        end
         currentSpoofAll = spoofAllState
         getgenv().spoofAll = spoofAllState
-        -- Запускаем подмену с опцией добавления галочки
-        startSpoof(cleanName, spoofAllState, addCheckmarkState)
-        getgenv().username = cleanName
-        currentTarget = cleanName
+        startSpoof(newName, spoofAllState)
+        getgenv().username = newName
+        currentTarget = newName
     end)
 
-    -- Переключение чекбокса "Подменять всех"
+    -- Переключение чекбокса
     checkBox.MouseButton1Click:Connect(function()
         spoofAllState = not spoofAllState
         updateCheckBox()
     end)
 
-    -- Переключение чекбокса "Добавить галочку"
-    checkmarkToggle.MouseButton1Click:Connect(function()
-        addCheckmarkState = not addCheckmarkState
-        updateCheckmarkToggle()
-    end)
-
     -- Автозапуск
     if currentTarget and currentTarget ~= "" then
-        startSpoof(currentTarget, currentSpoofAll, false)
+        startSpoof(currentTarget, currentSpoofAll)
     end
 end
 
