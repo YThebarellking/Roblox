@@ -1,459 +1,398 @@
--- ============================================================
---  SPOOFER + GUI (с поддержкой чата и всех UI-элементов)
--- ============================================================
-
 getgenv().username = getgenv().username or getgenv().Xiar_TargetUser or "Builderman"
 getgenv().spoofAll = getgenv().spoofAll or getgenv().Xiar_SpoofEveryone or false
-getgenv().spoofChat = getgenv().spoofChat or true   -- новый параметр
 
 local TARGET = getgenv().username
 local SPOOF_ALL = getgenv().spoofAll
-local SPOOF_CHAT = getgenv().spoofChat
 
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
-local ChatService = game:GetService("TextChatService")  -- для нового чата
 
 local spoofConnections = {}
-local respawnConnection = nil
-local chatConnection = nil
+local characterAddedConnection = nil  -- для управления переподключением
 
--- ===== Вспомогательные функции =====
 local function clearSpoof()
-    for _, conn in ipairs(spoofConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    spoofConnections = {}
-    if chatConnection then
-        chatConnection:Disconnect()
-        chatConnection = nil
-    end
-    if respawnConnection then
-        respawnConnection:Disconnect()
-        respawnConnection = nil
-    end
+	for _, conn in ipairs(spoofConnections) do
+		pcall(function() conn:Disconnect() end)
+	end
+	spoofConnections = {}
 end
 
 local function getUserId(name)
-    local s, id = pcall(function()
-        return Players:GetUserIdFromNameAsync(name)
-    end)
-    return s and id
+	local s, id = pcall(function()
+		return Players:GetUserIdFromNameAsync(name)
+	end)
+	return s and id
 end
 
 local function getDisplayName(userId)
-    local s, name = pcall(function()
-        return Players:GetNameFromUserIdAsync(userId)
-    end)
-    return s and name or TARGET
+	local s, name = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	return s and name or TARGET
 end
 
 local function getHeadshot(userId)
-    local img = Players:GetUserThumbnailAsync(
-        userId,
-        Enum.ThumbnailType.HeadShot,
-        Enum.ThumbnailSize.Size420x420
-    )
-    return img
+	local img = Players:GetUserThumbnailAsync(
+		userId,
+		Enum.ThumbnailType.HeadShot,
+		Enum.ThumbnailSize.Size420x420
+	)
+	return img
 end
 
--- ===== Обработка внешности персонажа (без изменений) =====
 local function findAttachment(char, name)
-    for _, v in ipairs(char:GetDescendants()) do
-        if v:IsA("Attachment") and v.Name == name then
-            return v
-        end
-    end
+	for _, v in ipairs(char:GetDescendants()) do
+		if v:IsA("Attachment") and v.Name == name then
+			return v
+		end
+	end
 end
 
 local function forceAttachAccessory(char, accessory)
-    local handle = accessory:FindFirstChild("Handle")
-    if not handle then return end
-    local accAttachment = handle:FindFirstChildOfClass("Attachment")
-    if not accAttachment then return end
-    local charAttachment = findAttachment(char, accAttachment.Name)
-    if not charAttachment then return end
-    for _, v in ipairs(handle:GetChildren()) do
-        if v:IsA("Weld") or v:IsA("Motor6D") then
-            v:Destroy()
-        end
-    end
-    local weld = Instance.new("Weld")
-    weld.Part0 = charAttachment.Parent
-    weld.Part1 = handle
-    weld.C0 = charAttachment.CFrame
-    weld.C1 = accAttachment.CFrame
-    weld.Parent = handle
+	local handle = accessory:FindFirstChild("Handle")
+	if not handle then return end
+
+	local accAttachment = handle:FindFirstChildOfClass("Attachment")
+	if not accAttachment then return end
+
+	local charAttachment = findAttachment(char, accAttachment.Name)
+	if not charAttachment then return end
+
+	for _, v in ipairs(handle:GetChildren()) do
+		if v:IsA("Weld") or v:IsA("Motor6D") then
+			v:Destroy()
+		end
+	end
+
+	local weld = Instance.new("Weld")
+	weld.Part0 = charAttachment.Parent
+	weld.Part1 = handle
+	weld.C0 = charAttachment.CFrame
+	weld.C1 = accAttachment.CFrame
+	weld.Parent = handle
 end
 
 local function clearCharacter(char)
-    for _, v in ipairs(char:GetChildren()) do
-        if v:IsA("Accessory") or v:IsA("Shirt") or v:IsA("Pants") or v:IsA("CharacterMesh") then
-            v:Destroy()
-        end
-    end
+	for _, v in ipairs(char:GetChildren()) do
+		if v:IsA("Accessory")
+		or v:IsA("Shirt")
+		or v:IsA("Pants")
+		or v:IsA("CharacterMesh") then
+			v:Destroy()
+		end
+	end
 end
 
 local function handleHead(char, appearance)
-    local head = char:FindFirstChild("Head")
-    if not head then return end
-    local isHeadless = false
-    for _, v in ipairs(appearance:GetDescendants()) do
-        if v:IsA("Accessory") then
-            if v.Name:lower():find("headless") then
-                isHeadless = true
-                break
-            end
-            local handle = v:FindFirstChild("Handle")
-            if handle then
-                local mesh = handle:FindFirstChildOfClass("SpecialMesh")
-                if mesh and mesh.MeshId:lower():find("134082579") then
-                    isHeadless = true
-                    break
-                end
-            end
-        end
-    end
-    if isHeadless then
-        head.Transparency = 1
-        local face = head:FindFirstChild("face")
-        if face then face:Destroy() end
-    else
-        head.Transparency = 0
-    end
+	local head = char:FindFirstChild("Head")
+	if not head then return end
+
+	local isHeadless = false
+
+	for _, v in ipairs(appearance:GetDescendants()) do
+		if v:IsA("Accessory") then
+			if v.Name:lower():find("headless") then
+				isHeadless = true
+				break
+			end
+
+			local handle = v:FindFirstChild("Handle")
+			if handle then
+				local mesh = handle:FindFirstChildOfClass("SpecialMesh")
+				if mesh and mesh.MeshId:lower():find("134082579") then
+					isHeadless = true
+					break
+				end
+			end
+		end
+	end
+
+	if isHeadless then
+		head.Transparency = 1
+		local face = head:FindFirstChild("face")
+		if face then face:Destroy() end
+	else
+		head.Transparency = 0
+	end
 end
 
 local function applyAppearance(userId)
-    local success, appearance = pcall(function()
-        return Players:GetCharacterAppearanceAsync(userId)
-    end)
-    if not success or not appearance then return end
-    local char = LP.Character or LP.CharacterAdded:Wait()
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    clearCharacter(char)
-    for _, obj in ipairs(appearance:GetChildren()) do
-        local clone = obj:Clone()
-        if clone:IsA("Shirt") or clone:IsA("Pants") then
-            clone.Parent = char
-        elseif clone:IsA("BodyColors") then
-            local old = char:FindFirstChildOfClass("BodyColors")
-            if old then old:Destroy() end
-            clone.Parent = char
-        elseif clone:IsA("Accessory") then
-            clone.Parent = char
-            pcall(function() hum:AddAccessory(clone) end)
-            forceAttachAccessory(char, clone)
-        end
-    end
-    handleHead(char, appearance)
+	local success, appearance = pcall(function()
+		return Players:GetCharacterAppearanceAsync(userId)
+	end)
+	if not success or not appearance then return end
+
+	local char = LP.Character or LP.CharacterAdded:Wait()
+	local hum = char:FindFirstChildOfClass("Humanoid")
+
+	clearCharacter(char)
+
+	for _, obj in ipairs(appearance:GetChildren()) do
+		local clone = obj:Clone()
+
+		if clone:IsA("Shirt") or clone:IsA("Pants") then
+			clone.Parent = char
+
+		elseif clone:IsA("BodyColors") then
+			local old = char:FindFirstChildOfClass("BodyColors")
+			if old then old:Destroy() end
+			clone.Parent = char
+
+		elseif clone:IsA("Accessory") then
+			clone.Parent = char
+			pcall(function()
+				hum:AddAccessory(clone)
+			end)
+			forceAttachAccessory(char, clone)
+		end
+	end
+
+	handleHead(char, appearance)
 end
 
 local function applyName(fakeName)
-    pcall(function()
-        LP.DisplayName = fakeName
-    end)
-    local function applyToChar(char)
-        pcall(function() char.Name = fakeName end)
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            pcall(function() hum.DisplayName = fakeName end)
-        end
-    end
-    if LP.Character then
-        applyToChar(LP.Character)
-    end
+	pcall(function()
+		LP.DisplayName = fakeName
+	end)
+
+	local function applyToChar(char)
+		pcall(function()
+			char.Name = fakeName
+		end)
+
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			pcall(function()
+				hum.DisplayName = fakeName
+			end)
+		end
+	end
+
+	if LP.Character then
+		applyToChar(LP.Character)
+	end
+
+	-- при каждом респавне тоже применяем
+	if characterAddedConnection then
+		characterAddedConnection:Disconnect()
+		characterAddedConnection = nil
+	end
+	characterAddedConnection = LP.CharacterAdded:Connect(function(char)
+		task.wait(0.5)
+		applyToChar(char)
+	end)
 end
 
--- ===== СПУФ ТЕКСТА ВО ВСЁМ ИНТЕРФЕЙСЕ =====
 local function startTextSpoof(fakeName)
-    clearSpoof()  -- очищаем старые подключения
+	clearSpoof()
 
-    local function replace(obj)
-        if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
-        local txt = obj.Text
-        local new = txt
+	local function replace(obj)
+		if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
+		
+		local txt = obj.Text
+		local new = txt
 
-        if SPOOF_ALL then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                new = new:gsub(plr.Name, fakeName)
-            end
-        else
-            new = new:gsub(LP.Name, fakeName)
-        end
+		if SPOOF_ALL then
+			for _, plr in ipairs(Players:GetPlayers()) do
+				new = new:gsub(plr.Name, fakeName)
+			end
+		else
+			new = new:gsub(LP.Name, fakeName)
+		end
 
-        -- Дополнительно заменяем отображаемое имя (DisplayName)
-        if SPOOF_ALL then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr.DisplayName then
-                    new = new:gsub(plr.DisplayName, fakeName)
-                end
-            end
-        else
-            if LP.DisplayName then
-                new = new:gsub(LP.DisplayName, fakeName)
-            end
-        end
+		if new ~= txt then
+			obj.Text = new
+		end
+	end
 
-        if new ~= txt then
-            obj.Text = new
-        end
-    end
+	local function hook(obj)
+		if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
+		
+		pcall(replace, obj)
 
-    local function hook(obj)
-        if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
-        pcall(replace, obj)
-        local conn = obj:GetPropertyChangedSignal("Text"):Connect(function()
-            pcall(replace, obj)
-        end)
-        table.insert(spoofConnections, conn)
-    end
+		local conn = obj:GetPropertyChangedSignal("Text"):Connect(function()
+			pcall(replace, obj)
+		end)
+		table.insert(spoofConnections, conn)
+	end
 
-    for _, v in ipairs(game:GetDescendants()) do
-        hook(v)
-    end
+	for _, v in ipairs(game:GetDescendants()) do
+		hook(v)
+	end
 
-    table.insert(spoofConnections, game.DescendantAdded:Connect(hook))
+	table.insert(spoofConnections, game.DescendantAdded:Connect(hook))
 end
 
--- ===== СПУФ АВАТАРОК В ИНТЕРФЕЙСЕ =====
 local function startHeadshotSpoof(userId)
-    local fakeHeadshot = getHeadshot(userId)
-    local realId = LP.UserId
+	local fakeHeadshot = getHeadshot(userId)
+	local realId = LP.UserId
 
-    local function replace(obj)
-        if not (obj:IsA("ImageLabel") or obj:IsA("ImageButton")) then return end
-        if typeof(obj.Image) == "string" and obj.Image:find(tostring(realId)) then
-            obj.Image = fakeHeadshot
-        end
-    end
+	local function replace(obj)
+		if not (obj:IsA("ImageLabel") or obj:IsA("ImageButton")) then return end
+		if typeof(obj.Image) == "string" and obj.Image:find(tostring(realId)) then
+			obj.Image = fakeHeadshot
+		end
+	end
 
-    for _, v in ipairs(game:GetDescendants()) do
-        replace(v)
-    end
+	for _, v in ipairs(game:GetDescendants()) do
+		replace(v)
+	end
 
-    table.insert(spoofConnections, game.DescendantAdded:Connect(replace))
+	game.DescendantAdded:Connect(replace)
 end
 
--- ===== СПУФ СООБЩЕНИЙ ЧАТА (НОВОЕ) =====
-local function startChatSpoof(fakeName, realName)
-    -- Для нового TextChatService
-    if ChatService and ChatService:FindFirstChild("TextChannels") then
-        -- Находим канал, обычно "RBXGeneral" или "General"
-        local channel = ChatService.TextChannels:FindFirstChild("RBXGeneral") or ChatService.TextChannels:FindFirstChild("General")
-        if channel and channel:IsA("TextChannel") then
-            if chatConnection then chatConnection:Disconnect() end
-            chatConnection = channel.MessageReceived:Connect(function(message)
-                -- Если сообщение от локального игрока или спуф всех
-                if message.TextSource then
-                    local senderName = message.TextSource.Name
-                    if SPOOF_ALL then
-                        -- заменяем имена всех отправителей на fakeName
-                        -- Но мы можем заменить только видимое сообщение, изменив свойство Text
-                        -- Однако message.Text - это сам текст, а не имя отправителя.
-                        -- В новом чате имя отправителя отображается отдельно, но мы можем заменить его в UI.
-                        -- Проще оставить общую замену текста, она уже работает.
-                    else
-                        if senderName == realName then
-                            -- Можно изменить текст сообщения, чтобы подменить имя внутри, но это некрасиво.
-                            -- Лучше использовать общую замену текста, которая уже есть.
-                        end
-                    end
-                end
-            end)
-        end
-    end
+-- ======== ОСНОВНАЯ ФУНКЦИЯ, ПРИМЕНЯЮЩАЯ ВСЁ ========
+local function applyAll(username)
+	local userId = getUserId(username)
+	if not userId then
+		warn("Пользователь не найден:", username)
+		return
+	end
 
-    -- Для старого чата (Chat) – но обычно не используется.
-    -- Дополнительно, мы уже заменяем все тексты в UI, поэтому чат должен подхватиться.
-    -- Однако, чтобы гарантировать замену в чате, можно добавить поиск по контейнеру чата.
-    -- Но это уже покрыто функцией startTextSpoof.
-    -- Оставим эту функцию как заглушку, но можно добавить обработку динамических сообщений.
+	local fakeName = getDisplayName(userId)
+
+	-- чистим старые спавны текста
+	clearSpoof()
+
+	-- применяем внешность
+	applyAppearance(userId)
+	-- применяем имя (внутри переподключает CharacterAdded)
+	applyName(fakeName)
+	-- спавним текст
+	startTextSpoof(fakeName)
+	-- спавним аватарку
+	startHeadshotSpoof(userId)
+
+	-- также при респавне повторяем внешность
+	if characterAddedConnection then
+		characterAddedConnection:Disconnect()
+		characterAddedConnection = nil
+	end
+	characterAddedConnection = LP.CharacterAdded:Connect(function()
+		task.wait(0.01)
+		applyAppearance(userId)
+		applyName(fakeName)
+	end)
 end
 
--- ===== ОСНОВНАЯ ФУНКЦИЯ ПРИМЕНЕНИЯ =====
-local function applySpoof(target, spoofAll, spoofChat)
-    clearSpoof()
-    getgenv().username = target
-    getgenv().spoofAll = spoofAll
-    getgenv().spoofChat = spoofChat
-    TARGET = target
-    SPOOF_ALL = spoofAll
-    SPOOF_CHAT = spoofChat
+-- ======== СОЗДАЁМ ОКНО ВВОДА ========
+local function createInputWindow()
+	local playerGui = LP:FindFirstChild("PlayerGui")
+	if not playerGui then
+		playerGui = Instance.new("ScreenGui")
+		playerGui.Parent = LP
+	end
 
-    local userId = getUserId(TARGET)
-    if not userId then return end
-    local fakeName = getDisplayName(userId)
-    local realName = LP.Name
+	-- чтобы не плодить окна
+	if playerGui:FindFirstChild("NickInputFrame") then
+		return
+	end
 
-    -- Применяем внешность и имя
-    applyAppearance(userId)
-    applyName(fakeName)
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "NickInputGui"
+	screen.Parent = playerGui
 
-    -- Спуф интерфейса (текст и аватарки)
-    startTextSpoof(fakeName)
-    startHeadshotSpoof(userId)
+	local frame = Instance.new("Frame")
+	frame.Name = "NickInputFrame"
+	frame.Size = UDim2.new(0, 300, 0, 150)
+	frame.Position = UDim2.new(0.5, -150, 0.5, -75)
+	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	frame.BorderSizePixel = 0
+	frame.BackgroundTransparency = 0.1
+	frame.Parent = screen
 
-    -- Спуф чата (если включён)
-    if SPOOF_CHAT then
-        startChatSpoof(fakeName, realName)
-    end
+	-- заголовок (для перетаскивания)
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, 0, 0, 30)
+	title.Position = UDim2.new(0, 0, 0, 0)
+	title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	title.BorderSizePixel = 0
+	title.Text = "  Смена ника"
+	title.TextColor3 = Color3.new(1, 1, 1)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Font = Enum.Font.SourceSansBold
+	title.TextSize = 18
+	title.Parent = frame
 
-    -- Переподключаем при респавне
-    respawnConnection = LP.CharacterAdded:Connect(function()
-        task.wait(0.01)
-        applyAppearance(userId)
-        applyName(fakeName)
-    end)
+	-- поле ввода
+	local textBox = Instance.new("TextBox")
+	textBox.Size = UDim2.new(1, -20, 0, 30)
+	textBox.Position = UDim2.new(0, 10, 0, 45)
+	textBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	textBox.BorderSizePixel = 0
+	textBox.TextColor3 = Color3.new(1, 1, 1)
+	textBox.PlaceholderText = "Имя игрока"
+	textBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+	textBox.Font = Enum.Font.SourceSans
+	textBox.TextSize = 16
+	textBox.ClearTextOnFocus = false
+	textBox.Parent = frame
+
+	-- кнопка подтверждения
+	local confirmButton = Instance.new("TextButton")
+	confirmButton.Size = UDim2.new(0, 100, 0, 35)
+	confirmButton.Position = UDim2.new(0.5, -50, 1, -45)
+	confirmButton.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+	confirmButton.BorderSizePixel = 0
+	confirmButton.Text = "Подтвердить"
+	confirmButton.TextColor3 = Color3.new(1, 1, 1)
+	confirmButton.Font = Enum.Font.SourceSansBold
+	confirmButton.TextSize = 18
+	confirmButton.Parent = frame
+
+	-- ====== ПЕРЕТАСКИВАНИЕ ======
+	local dragging = false
+	local dragStartPos, dragStartMouse
+
+	title.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			dragStartPos = frame.Position
+			dragStartMouse = input.Position
+		end
+	end)
+
+	title.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = false
+		end
+	end)
+
+	game:GetService("UserInputService").InputChanged:Connect(function(input)
+		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+			local delta = input.Position - dragStartMouse
+			frame.Position = UDim2.new(
+				dragStartPos.X.Scale,
+				dragStartPos.X.Offset + delta.X,
+				dragStartPos.Y.Scale,
+				dragStartPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+
+	-- ====== ДЕЙСТВИЕ ПРИ НАЖАТИИ ======
+	confirmButton.MouseButton1Click:Connect(function()
+		local newName = textBox.Text:gsub("^%s+", ""):gsub("%s+$", "")  -- обрезаем пробелы
+		if newName == "" then
+			textBox.PlaceholderText = "Введите имя!"
+			task.wait(0.5)
+			textBox.PlaceholderText = "Имя игрока"
+			return
+		end
+
+		-- обновляем глобальную переменную
+		getgenv().username = newName
+		-- применяем всё заново
+		applyAll(newName)
+
+		-- можно оставить окно открытым, но для удобства закроем его (по желанию)
+		-- если хочешь оставить - закомментируй следующую строку
+		screen:Destroy()
+	end)
 end
 
--- ===== СОЗДАНИЕ ПЕРЕТАСКИВАЕМОГО GUI =====
-local function createGUI()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "SpoofGUI"
-    screenGui.Parent = LP.PlayerGui
-
-    local frame = Instance.new("Frame")
-    frame.Name = "MainFrame"
-    frame.Size = UDim2.new(0, 280, 0, 220)
-    frame.Position = UDim2.new(0.5, -140, 0.5, -110)
-    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    frame.BackgroundTransparency = 0.15
-    frame.BorderSizePixel = 0
-    frame.Active = true
-    frame.Parent = screenGui
-
-    -- Заголовок (для перетаскивания)
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 30)
-    title.Position = UDim2.new(0, 0, 0, 0)
-    title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    title.Text = "Spoof Settings"
-    title.TextColor3 = Color3.new(1, 1, 1)
-    title.Font = Enum.Font.SourceSansBold
-    title.TextSize = 18
-    title.Parent = frame
-
-    -- Поле ввода имени
-    local textBox = Instance.new("TextBox")
-    textBox.Size = UDim2.new(1, -20, 0, 30)
-    textBox.Position = UDim2.new(0, 10, 0, 40)
-    textBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    textBox.TextColor3 = Color3.new(1, 1, 1)
-    textBox.Font = Enum.Font.SourceSans
-    textBox.TextSize = 16
-    textBox.Text = getgenv().username or "Builderman"
-    textBox.PlaceholderText = "Enter username"
-    textBox.Parent = frame
-
-    -- Чекбокс "Spoof all players"
-    local checkAll = Instance.new("TextButton")
-    checkAll.Size = UDim2.new(0, 20, 0, 20)
-    checkAll.Position = UDim2.new(0, 10, 0, 80)
-    checkAll.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    checkAll.Text = getgenv().spoofAll and "X" or ""
-    checkAll.TextColor3 = Color3.new(1, 1, 1)
-    checkAll.Font = Enum.Font.SourceSans
-    checkAll.TextSize = 16
-    checkAll.Parent = frame
-
-    local labelAll = Instance.new("TextLabel")
-    labelAll.Size = UDim2.new(1, -40, 0, 20)
-    labelAll.Position = UDim2.new(0, 40, 0, 80)
-    labelAll.BackgroundTransparency = 1
-    labelAll.Text = "Spoof all players"
-    labelAll.TextColor3 = Color3.new(1, 1, 1)
-    labelAll.Font = Enum.Font.SourceSans
-    labelAll.TextSize = 14
-    labelAll.TextXAlignment = Enum.TextXAlignment.Left
-    labelAll.Parent = frame
-
-    -- Чекбокс "Spoof chat messages"
-    local checkChat = Instance.new("TextButton")
-    checkChat.Size = UDim2.new(0, 20, 0, 20)
-    checkChat.Position = UDim2.new(0, 10, 0, 110)
-    checkChat.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    checkChat.Text = getgenv().spoofChat and "X" or ""
-    checkChat.TextColor3 = Color3.new(1, 1, 1)
-    checkChat.Font = Enum.Font.SourceSans
-    checkChat.TextSize = 16
-    checkChat.Parent = frame
-
-    local labelChat = Instance.new("TextLabel")
-    labelChat.Size = UDim2.new(1, -40, 0, 20)
-    labelChat.Position = UDim2.new(0, 40, 0, 110)
-    labelChat.BackgroundTransparency = 1
-    labelChat.Text = "Spoof chat messages"
-    labelChat.TextColor3 = Color3.new(1, 1, 1)
-    labelChat.Font = Enum.Font.SourceSans
-    labelChat.TextSize = 14
-    labelChat.TextXAlignment = Enum.TextXAlignment.Left
-    labelChat.Parent = frame
-
-    -- Кнопка Apply
-    local applyBtn = Instance.new("TextButton")
-    applyBtn.Size = UDim2.new(1, -20, 0, 30)
-    applyBtn.Position = UDim2.new(0, 10, 0, 150)
-    applyBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
-    applyBtn.Text = "Apply"
-    applyBtn.TextColor3 = Color3.new(1, 1, 1)
-    applyBtn.Font = Enum.Font.SourceSansBold
-    applyBtn.TextSize = 16
-    applyBtn.Parent = frame
-
-    -- ===== Ручное перетаскивание =====
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
-
-    title.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    title.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-
-    -- Обработка чекбоксов
-    checkAll.MouseButton1Click:Connect(function()
-        local newState = not (checkAll.Text == "X")
-        checkAll.Text = newState and "X" or ""
-        getgenv().spoofAll = newState
-    end)
-
-    checkChat.MouseButton1Click:Connect(function()
-        local newState = not (checkChat.Text == "X")
-        checkChat.Text = newState and "X" or ""
-        getgenv().spoofChat = newState
-    end)
-
-    -- Применение настроек
-    applyBtn.MouseButton1Click:Connect(function()
-        local newName = textBox.Text
-        if newName and newName ~= "" then
-            getgenv().username = newName
-        end
-        applySpoof(getgenv().username, getgenv().spoofAll, getgenv().spoofChat)
-    end)
-
-    return screenGui
-end
-
--- ===== ПЕРВЫЙ ЗАПУСК =====
-applySpoof(getgenv().username, getgenv().spoofAll, getgenv().spoofChat)
-
--- Создаём GUI (если ещё нет)
-if not LP.PlayerGui:FindFirstChild("SpoofGUI") then
-    pcall(createGUI)
-end
+-- ======== ЗАПУСК ========
+-- сначала применяем начальный ник
+applyAll(TARGET)
+-- потом создаём окно (оно не мешает работе)
+createInputWindow()
