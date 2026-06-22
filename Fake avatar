@@ -1,34 +1,32 @@
 -- =====================================================
 -- Скрипт подмены внешности, имени и аватарок (с GUI)
+-- Версия 2.0 – исправления для мобильных + галочка
 -- =====================================================
 
--- Если переменные уже заданы через глобалку, они будут использованы как начальные
 getgenv().username = getgenv().username or getgenv().Xiar_TargetUser or "Builderman"
 getgenv().spoofAll = getgenv().spoofAll or getgenv().Xiar_SpoofEveryone or false
-
-local TARGET = getgenv().username
-local SPOOF_ALL = getgenv().spoofAll
 
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local PlayerGui = LP:WaitForChild("PlayerGui")
 
--- ========== Глобальные переменные для управления ==========
-local currentTarget = TARGET
-local currentSpoofAll = SPOOF_ALL
+local currentTarget = getgenv().username
+local currentSpoofAll = getgenv().spoofAll
 local spoofConnections = {}
 local isRunning = false
+local spoofActive = false  -- для галочки
 
--- ========== Очистка старых подключений ==========
+-- ========== Очистка подключений ==========
 local function clearSpoof()
     for _, conn in ipairs(spoofConnections) do
         pcall(function() conn:Disconnect() end)
     end
     spoofConnections = {}
     isRunning = false
+    spoofActive = false
 end
 
--- ========== Вспомогательные функции (без изменений) ==========
+-- ========== Вспомогательные функции ==========
 local function getUserId(name)
     local s, id = pcall(function()
         return Players:GetUserIdFromNameAsync(name)
@@ -44,12 +42,11 @@ local function getDisplayName(userId)
 end
 
 local function getHeadshot(userId)
-    local img = Players:GetUserThumbnailAsync(
+    return Players:GetUserThumbnailAsync(
         userId,
         Enum.ThumbnailType.HeadShot,
         Enum.ThumbnailSize.Size420x420
     )
-    return img
 end
 
 local function findAttachment(char, name)
@@ -121,10 +118,20 @@ local function applyAppearance(userId)
     local success, appearance = pcall(function()
         return Players:GetCharacterAppearanceAsync(userId)
     end)
-    if not success or not appearance then return end
+    if not success or not appearance then
+        warn("Не удалось загрузить внешность")
+        return false
+    end
+    -- Небольшая задержка, чтобы данные точно загрузились
+    task.wait(0.1)
+
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+
     clearCharacter(char)
+
+    -- Клонируем и применяем все элементы внешности
     for _, obj in ipairs(appearance:GetChildren()) do
         local clone = obj:Clone()
         if clone:IsA("Shirt") or clone:IsA("Pants") then
@@ -135,11 +142,15 @@ local function applyAppearance(userId)
             clone.Parent = char
         elseif clone:IsA("Accessory") then
             clone.Parent = char
-            pcall(function() hum:AddAccessory(clone) end)
+            pcall(function()
+                hum:AddAccessory(clone)
+            end)
             forceAttachAccessory(char, clone)
         end
     end
+
     handleHead(char, appearance)
+    return true
 end
 
 local function applyName(fakeName)
@@ -159,7 +170,7 @@ local function applyName(fakeName)
 end
 
 local function startTextSpoof(fakeName)
-    clearSpoof() -- очищаем старые подключения перед созданием новых
+    clearSpoof()
     local function replace(obj)
         if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
         local txt = obj.Text
@@ -204,28 +215,32 @@ local function startHeadshotSpoof(userId)
     table.insert(spoofConnections, game.DescendantAdded:Connect(replace))
 end
 
--- ========== Основная функция запуска подмены ==========
+-- ========== Основная функция запуска ==========
 local function startSpoof(targetName, spoofAll)
     currentTarget = targetName
     currentSpoofAll = spoofAll
-    -- Сохраняем в глобалку для совместимости
     getgenv().username = targetName
     getgenv().spoofAll = spoofAll
-
-    -- Очищаем старые подключения
     clearSpoof()
 
     local userId = getUserId(targetName)
     if not userId then
-        warn("Не удалось найти пользователя: " .. targetName)
-        return
+        warn("Пользователь не найден: " .. targetName)
+        spoofActive = false
+        return false
     end
 
     local fakeName = getDisplayName(userId)
     isRunning = true
+    spoofActive = true
 
-    -- Применяем внешность, имя, текст, аватарки
-    applyAppearance(userId)
+    -- Применяем внешность (с проверкой)
+    local success = applyAppearance(userId)
+    if not success then
+        spoofActive = false
+        warn("Не удалось применить внешность")
+    end
+
     applyName(fakeName)
     startTextSpoof(fakeName)
     startHeadshotSpoof(userId)
@@ -239,11 +254,12 @@ local function startSpoof(targetName, spoofAll)
         end
     end)
     table.insert(spoofConnections, charAddedConn)
+
+    return true
 end
 
 -- ========== СОЗДАНИЕ GUI ==========
 local function createGUI()
-    -- Удаляем старый GUI, если есть
     local oldGui = PlayerGui:FindFirstChild("SpoofGUI")
     if oldGui then oldGui:Destroy() end
 
@@ -251,10 +267,9 @@ local function createGUI()
     screenGui.Name = "SpoofGUI"
     screenGui.Parent = PlayerGui
 
-    -- Основной фрейм
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 280, 0, 160)
-    frame.Position = UDim2.new(0.5, -140, 0.5, -80)
+    frame.Size = UDim2.new(0, 300, 0, 170)
+    frame.Position = UDim2.new(0.5, -150, 0.5, -85)
     frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     frame.BackgroundTransparency = 0.1
     frame.BorderSizePixel = 1
@@ -274,10 +289,17 @@ local function createGUI()
     title.Font = Enum.Font.GothamBold
     title.Parent = frame
 
-    -- Поле ввода ника
+    -- Контейнер для поля ввода + галочка
+    local inputContainer = Instance.new("Frame")
+    inputContainer.Size = UDim2.new(0.95, 0, 0, 35)
+    inputContainer.Position = UDim2.new(0.025, 0, 0.3, 0)
+    inputContainer.BackgroundTransparency = 1
+    inputContainer.Parent = frame
+
+    -- Поле ввода
     local textBox = Instance.new("TextBox")
-    textBox.Size = UDim2.new(0.7, 0, 0, 30)
-    textBox.Position = UDim2.new(0.05, 0, 0.35, 0)
+    textBox.Size = UDim2.new(0.85, 0, 1, 0)
+    textBox.Position = UDim2.new(0, 0, 0, 0)
     textBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
     textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
     textBox.PlaceholderText = "Введите ник..."
@@ -285,12 +307,24 @@ local function createGUI()
     textBox.ClearTextOnFocus = false
     textBox.Font = Enum.Font.Gotham
     textBox.TextSize = 16
-    textBox.Parent = frame
+    textBox.Parent = inputContainer
+
+    -- Галочка (✔) – появляется при активной подмене
+    local checkMark = Instance.new("TextLabel")
+    checkMark.Size = UDim2.new(0.1, 0, 1, 0)
+    checkMark.Position = UDim2.new(0.88, 0, 0, 0)
+    checkMark.BackgroundTransparency = 1
+    checkMark.Text = "✔"
+    checkMark.TextColor3 = Color3.fromRGB(0, 255, 0)
+    checkMark.TextScaled = true
+    checkMark.Font = Enum.Font.Gotham
+    checkMark.Visible = spoofActive
+    checkMark.Parent = inputContainer
 
     -- Кнопка "Применить"
     local applyBtn = Instance.new("TextButton")
-    applyBtn.Size = UDim2.new(0.2, 0, 0, 30)
-    applyBtn.Position = UDim2.new(0.77, 0, 0.35, 0)
+    applyBtn.Size = UDim2.new(0.85, 0, 0, 30)
+    applyBtn.Position = UDim2.new(0.025, 0, 0.6, 0)
     applyBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
     applyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     applyBtn.Text = "Применить"
@@ -299,9 +333,9 @@ local function createGUI()
     applyBtn.Parent = frame
 
     -- Чекбокс "Подменять всех"
-    local checkBox = Instance.new("TextButton") -- используем кнопку как переключатель
-    checkBox.Size = UDim2.new(0.9, 0, 0, 25)
-    checkBox.Position = UDim2.new(0.05, 0, 0.7, 0)
+    local checkBox = Instance.new("TextButton")
+    checkBox.Size = UDim2.new(0.85, 0, 0, 25)
+    checkBox.Position = UDim2.new(0.025, 0, 0.78, 0)
     checkBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
     checkBox.TextColor3 = Color3.fromRGB(255, 255, 255)
     checkBox.Text = "Подменять всех: ВЫКЛ"
@@ -322,6 +356,18 @@ local function createGUI()
     end
     updateCheckBox()
 
+    -- Сохраняем введённый текст при изменении (для мобильных)
+    local savedText = textBox.Text
+    textBox:GetPropertyChangedSignal("Text"):Connect(function()
+        savedText = textBox.Text
+    end)
+    -- При потере фокуса восстанавливаем, если было пусто
+    textBox.FocusLost:Connect(function(enterPressed)
+        if textBox.Text == "" and savedText ~= "" then
+            textBox.Text = savedText
+        end
+    end)
+
     -- Обработчик кнопки "Применить"
     applyBtn.MouseButton1Click:Connect(function()
         local newName = textBox.Text
@@ -329,30 +375,33 @@ local function createGUI()
             textBox.PlaceholderText = "Введите ник!"
             return
         end
-        -- Обновляем состояние чекбокса
         currentSpoofAll = spoofAllState
         getgenv().spoofAll = spoofAllState
-        -- Запускаем подмену
-        startSpoof(newName, spoofAllState)
-        -- Сохраняем введённый ник в глобалку
-        getgenv().username = newName
-        currentTarget = newName
+        local ok = startSpoof(newName, spoofAllState)
+        if ok then
+            checkMark.Visible = true
+            currentTarget = newName
+            getgenv().username = newName
+            savedText = newName
+        else
+            checkMark.Visible = false
+        end
     end)
 
-    -- Обработчик чекбокса (переключение по клику)
+    -- Переключение чекбокса
     checkBox.MouseButton1Click:Connect(function()
         spoofAllState = not spoofAllState
         updateCheckBox()
     end)
 
-    -- При запуске сразу применяем текущие настройки (если уже есть цель)
+    -- При запуске применяем настройки, если цель задана
     if currentTarget and currentTarget ~= "" then
-        startSpoof(currentTarget, currentSpoofAll)
+        local ok = startSpoof(currentTarget, currentSpoofAll)
+        if ok then checkMark.Visible = true end
     end
 end
 
 -- ========== ЗАПУСК ==========
--- Если GUI уже существует, пересоздаём его (чтобы обновить)
 pcall(function()
     PlayerGui:FindFirstChild("SpoofGUI"):Destroy()
 end)
