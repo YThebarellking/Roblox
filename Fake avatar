@@ -1,6 +1,6 @@
 -- =====================================================
 -- Скрипт подмены внешности, имени и аватарок (с GUI)
--- Версия 2.0 – исправления для мобильных + галочка
+-- Версия 2.1 – символ галочки 
 -- =====================================================
 
 getgenv().username = getgenv().username or getgenv().Xiar_TargetUser or "Builderman"
@@ -14,7 +14,7 @@ local currentTarget = getgenv().username
 local currentSpoofAll = getgenv().spoofAll
 local spoofConnections = {}
 local isRunning = false
-local spoofActive = false  -- для галочки
+local spoofActive = false
 
 -- ========== Очистка подключений ==========
 local function clearSpoof()
@@ -122,7 +122,6 @@ local function applyAppearance(userId)
         warn("Не удалось загрузить внешность")
         return false
     end
-    -- Небольшая задержка, чтобы данные точно загрузились
     task.wait(0.1)
 
     local char = LP.Character or LP.CharacterAdded:Wait()
@@ -131,7 +130,6 @@ local function applyAppearance(userId)
 
     clearCharacter(char)
 
-    -- Клонируем и применяем все элементы внешности
     for _, obj in ipairs(appearance:GetChildren()) do
         local clone = obj:Clone()
         if clone:IsA("Shirt") or clone:IsA("Pants") then
@@ -234,7 +232,6 @@ local function startSpoof(targetName, spoofAll)
     isRunning = true
     spoofActive = true
 
-    -- Применяем внешность (с проверкой)
     local success = applyAppearance(userId)
     if not success then
         spoofActive = false
@@ -245,7 +242,6 @@ local function startSpoof(targetName, spoofAll)
     startTextSpoof(fakeName)
     startHeadshotSpoof(userId)
 
-    -- Обработка респавна
     local charAddedConn = LP.CharacterAdded:Connect(function()
         task.wait(0.01)
         if isRunning then
@@ -309,12 +305,12 @@ local function createGUI()
     textBox.TextSize = 16
     textBox.Parent = inputContainer
 
-    -- Галочка (✔) – появляется при активной подмене
+    -- Галочка (символ ) – появляется при активной подмене
     local checkMark = Instance.new("TextLabel")
     checkMark.Size = UDim2.new(0.1, 0, 1, 0)
     checkMark.Position = UDim2.new(0.88, 0, 0, 0)
     checkMark.BackgroundTransparency = 1
-    checkMark.Text = "✔"
+    checkMark.Text = ""   -- изменён символ
     checkMark.TextColor3 = Color3.fromRGB(0, 255, 0)
     checkMark.TextScaled = true
     checkMark.Font = Enum.Font.Gotham
@@ -361,7 +357,6 @@ local function createGUI()
     textBox:GetPropertyChangedSignal("Text"):Connect(function()
         savedText = textBox.Text
     end)
-    -- При потере фокуса восстанавливаем, если было пусто
     textBox.FocusLost:Connect(function(enterPressed)
         if textBox.Text == "" and savedText ~= "" then
             textBox.Text = savedText
