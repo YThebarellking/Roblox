@@ -1,156 +1,343 @@
---[[
-  Xeno Ultimate Immortality Script v4.2
-  Автор: @tweakos (внутренний движок)
-  Использование: загрузить в Xeno Executor (режим "Kernel") 
-  и выполнить без модификаций.
---]]
+-- Контекст: Xeno GUI (DaryllHub) мобильная адаптация + Fly по вектору направления камеры (LookVector)
+local players = game:GetService("Players")
+local runService = game:GetService("RunService")
+local coreGui = game:GetService("CoreGui")
+local player = players.LocalPlayer
+local camera = workspace.CurrentCamera
 
--- Отключение стандартных предупреждений
-setfflag("HumanoidUseNewHealthSystem", "False")
-game:GetService("StarterGui"):SetCore("SendNotification", {Title="TWKS", Text="Бессмертие активировано", Duration=2})
+-- Состояние функций
+local godModeEnabled = false
+local noclipEnabled = false
+local antiFlingEnabled = false
+local xrayEnabled = false
+local flyEnabled = false
+local flySpeed = 50
 
--- 1. Базовый перехват свойств Health и MaxHealth
-local plr = game.Players.LocalPlayer
-local char = plr.Character or plr.CharacterAdded:Wait()
-local humanoid = char:WaitForChild("Humanoid")
+local godLoop = nil
+local noclipLoop = nil
+local antiFlingLoop = nil
+local xrayLoop = nil
+local flyLoop = nil
 
--- Запись исходных значений (на всякий случай)
-local originalMaxHealth = humanoid.MaxHealth
-humanoid.MaxHealth = math.huge  -- 1.7e308, фактически бесконечность
-humanoid.Health = math.huge
+-- Создание интерфейса (DaryllHub)
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DaryllHub_Xeno"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = coreGui:FindFirstChild("RobloxGui") or coreGui
 
--- 2. Защита от изменений через свойство .Health (метатаблица)
-local mt = getrawmetatable(game)
-local old_index = mt.__index
-local old_newindex = mt.__newindex
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 240, 0, 360)
+mainFrame.Position = UDim2.new(0.5, -120, 0.3, -180)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
 
-setreadonly(mt, false)
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainFrame
 
-mt.__index = newcclosure(function(self, key)
-    if key == "Health" and self == humanoid then
-        return math.huge
-    elseif key == "MaxHealth" and self == humanoid then
-        return math.huge
-    end
-    return old_index(self, key)
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+title.Text = "DaryllHub (Mobile)"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 18
+title.Font = Enum.Font.SourceSansBold
+title.BorderSizePixel = 0
+title.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = title
+
+local toggleGuiBtn = Instance.new("TextButton")
+toggleGuiBtn.Size = UDim2.new(0, 50, 0, 50)
+toggleGuiBtn.Position = UDim2.new(0.1, 0, 0.1, 0)
+toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+toggleGuiBtn.Text = "Daryll"
+toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleGuiBtn.TextSize = 14
+toggleGuiBtn.Parent = screenGui
+Instance.new("UICorner", toggleGuiBtn).CornerRadius = UDim.new(0, 25)
+
+toggleGuiBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = not mainFrame.Visible
 end)
 
-mt.__newindex = newcclosure(function(self, key, value)
-    if key == "Health" and self == humanoid then
-        return  -- блокируем запись
-    elseif key == "MaxHealth" and self == humanoid then
-        return
-    end
-    return old_newindex(self, key, value)
-end)
+local container = Instance.new("ScrollingFrame")
+container.Size = UDim2.new(1, 0, 1, -40)
+container.Position = UDim2.new(0, 0, 0, 40)
+container.BackgroundTransparency = 1
+container.CanvasSize = UDim2.new(0, 0, 0, 420)
+container.ScrollBarThickness = 4
+container.Parent = mainFrame
 
-setreadonly(mt, true)
-
--- 3. Хуки на функции урона (Damage, TakeDamage, BreakJoints)
-local function noOp() end
-local oldTakeDamage = humanoid.TakeDamage
-humanoid.TakeDamage = newcclosure(function(self, amount)
-    -- Игнорируем любой урон
-    return noOp()
-end)
-
--- Перехват через RemoteEvent (для сетевых атак)
-local replicatedStorage = game:GetService("ReplicatedStorage")
-local remoteEvents = replicatedStorage:GetDescendants()
-for _, obj in ipairs(remoteEvents) do
-    if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-        if obj.Name:find("Damage") or obj.Name:find("Hit") then
-            local oldFire = obj.FireServer
-            if oldFire then
-                obj.FireServer = newcclosure(function(self, ...)
-                    local args = {...}
-                    -- Если первый аргумент - игрок, и это урон, игнорируем
-                    if type(args[1]) == "number" and args[1] > 0 then
-                        return noOp()
-                    end
-                    return oldFire(self, ...)
-                end)
-            end
-        end
-    end
+local function createButton(text, yPos)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.9, 0, 0, 45)
+    btn.Position = UDim2.new(0.05, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.Text = text .. " [OFF]"
+    btn.TextColor3 = Color3.fromRGB(200, 50, 50)
+    btn.TextSize = 16
+    btn.Font = Enum.Font.SourceSansBold
+    btn.Parent = container
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    return btn
 end
 
--- 4. Аппаратный патч памяти через Xeno Native API (для защиты от крашей)
--- Определяем сигнатуру и адрес смещения health_offset в классе Humanoid.
--- Roblox версии 0.604.0.20260128, адрес получаем динамически.
-local function getHumanoidHealthOffset()
-    -- Сканируем память процесса по сигнатуре 48 8B 81 ? ? ? ? 48 89 44 24
-    local sig = "48 8B 81 ? ? ? ? 48 89 44 24"
-    local address = xeno.scan(sig)
-    if address then
-        -- Читаем смещение из инструкции (4 байта после 48 8B 81)
-        local offset = xeno.read_uint32(address + 3)
-        return offset
-    end
-    return 0x1A8  -- резервное значение для текущей версии
-end
+local godBtn = createButton("God Mode", 10)
+local noclipBtn = createButton("Noclip", 65)
+local antiFlingBtn = createButton("Anti Fling", 120)
+local xrayBtn = createButton("X-Ray", 175)
+local flyBtn = createButton("Fly", 230)
 
-local healthOffset = getHumanoidHealthOffset()
-local humanoidPtr = xeno.getObjectAddress(humanoid)  -- получить указатель на объект
-if humanoidPtr ~= 0 then
-    local healthAddr = humanoidPtr + healthOffset
-    -- Устанавливаем защиту страницы на запись и пишем бесконечность (IEEE754 double)
-    xeno.protectMemory(healthAddr, 8, 0x40)  -- RW
-    xeno.write_float(healthAddr, 1e308)      -- запись double
-    -- Дополнительно закрепляем через цикл обновления
-    game:GetService("RunService").Stepped:Connect(function()
-        -- Сравниваем текущее значение в памяти, если изменилось - восстанавливаем
-        local current = xeno.read_double(healthAddr)
-        if current < 1e307 then  -- если меньше бесконечности
-            xeno.write_double(healthAddr, 1e308)
-        end
-    end)
-end
+local speedFrame = Instance.new("Frame")
+speedFrame.Size = UDim2.new(0.9, 0, 0, 45)
+speedFrame.Position = UDim2.new(0.05, 0, 0, 285)
+speedFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+speedFrame.Parent = container
+Instance.new("UICorner", speedFrame).CornerRadius = UDim.new(0, 6)
 
--- 5. Защита от кика за античит (Heartbeat обход)
-local heartbeat = game:GetService("RunService").Heartbeat
-heartbeat:Connect(function()
-    -- Проверка статуса игрока
-    if humanoid.Health < 1e300 then
-        humanoid.Health = math.huge
-    end
-    -- Обновление MaxHealth на случай сброса
-    if humanoid.MaxHealth ~= math.huge then
-        humanoid.MaxHealth = math.huge
-    end
-    -- Дополнительно защита от BreakJoints (смерть)
-    if char:FindFirstChild("HumanoidRootPart") then
-        char.HumanoidRootPart.Anchored = true  -- предотвращает падение
-    end
+local speedText = Instance.new("TextLabel")
+speedText.Size = UDim2.new(0.5, 0, 1, 0)
+speedText.BackgroundTransparency = 1
+speedText.Text = "Fly Speed: " .. tostring(flySpeed)
+speedText.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedText.TextSize = 14
+speedText.Font = Enum.Font.SourceSans
+speedText.Parent = speedFrame
+
+local speedUp = Instance.new("TextButton")
+speedUp.Size = UDim2.new(0.2, 0, 0.8, 0)
+speedUp.Position = UDim2.new(0.55, 0, 0.1, 0)
+speedUp.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+speedUp.Text = "+"
+speedUp.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedUp.TextSize = 18
+speedUp.Parent = speedFrame
+Instance.new("UICorner", speedUp).CornerRadius = UDim.new(0, 4)
+
+local speedDown = Instance.new("TextButton")
+speedDown.Size = UDim2.new(0.2, 0, 0.8, 0)
+speedDown.Position = UDim2.new(0.77, 0, 0.1, 0)
+speedDown.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+speedDown.Text = "-"
+speedDown.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedDown.TextSize = 18
+speedDown.Parent = speedFrame
+Instance.new("UICorner", speedDown).CornerRadius = UDim.new(0, 4)
+
+speedUp.MouseButton1Click:Connect(function()
+    flySpeed = math.min(flySpeed + 10, 300)
+    speedText.Text = "Fly Speed: " .. tostring(flySpeed)
 end)
 
--- 6. Перехват события смерти (Died) для немедленного воскрешения
-humanoid.Died:Connect(function()
-    -- Восстановление персонажа без задержки
-    local newChar = plr.CharacterAdded:Wait()
-    humanoid = newChar:WaitForChild("Humanoid")
+speedDown.MouseButton1Click:Connect(function()
+    flySpeed = math.max(flySpeed - 10, 10)
+    speedText.Text = "Fly Speed: " .. tostring(flySpeed)
+end)
+
+-- Мобильные кнопки направления удалены, так как полет теперь завязан на вектор камеры при движении
+
+-- Логика GodMode
+local function setupGodMode(character)
+    if not character or not godModeEnabled then return end
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if not humanoid then return end
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
     humanoid.MaxHealth = math.huge
     humanoid.Health = math.huge
-    -- Повторно навесить хуки
-    humanoid.TakeDamage = newcclosure(function() end)
-end)
-
--- 7. Дополнительная защита от изменения свойств через сеть (фильтр)
-local function hookRemoteEvent(name)
-    local ev = replicatedStorage:FindFirstChild(name)
-    if ev and ev:IsA("RemoteEvent") then
-        local oldOnServerEvent = ev.OnServerEvent
-        ev.OnServerEvent = newcclosure(function(self, player, ...)
-            -- Отклоняем любые вызовы, связанные с уроном
-            return noOp()
-        end)
+    for _, part in ipairs(character:GetChildren()) do
+        if part:IsA("BasePart") then part.CanTouch = false end
     end
 end
-hookRemoteEvent("DamageEvent")
-hookRemoteEvent("TakeDamageRemote")
 
--- 8. Вывод статуса
-print("[TWKS] Бессмертие активно. Текущее здоровье: " .. tostring(humanoid.Health))
+local function toggleGodMode()
+    godModeEnabled = not godModeEnabled
+    if godModeEnabled then
+        godBtn.Text = "God Mode [ON]"
+        godBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        if player.Character then setupGodMode(player.Character) end
+        godLoop = runService.Heartbeat:Connect(function()
+            if player.Character and player.Character:FindFirstChild("Humanoid") then
+                player.Character.Humanoid.Health = player.Character.Humanoid.MaxHealth
+            end
+        end)
+    else
+        godBtn.Text = "God Mode [OFF]"
+        godBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if godLoop then godLoop:Disconnect() godLoop = nil end
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+            player.Character.Humanoid.Health = 100
+        end
+    end
+end
 
--- Возвращаем управление (скрипт остаётся в памяти)
-return true
+-- Логика Noclip
+local function toggleNoclip()
+    noclipEnabled = not noclipEnabled
+    if noclipEnabled then
+        noclipBtn.Text = "Noclip [ON]"
+        noclipBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        noclipLoop = runService.Stepped:Connect(function()
+            if player.Character and noclipEnabled then
+                for _, part in ipairs(player.Character:GetChildren()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
+                end
+            end
+        end)
+    else
+        noclipBtn.Text = "Noclip [OFF]"
+        noclipBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if noclipLoop then noclipLoop:Disconnect() noclipLoop = nil end
+    end
+end
+
+-- Логика Anti-Fling
+local function toggleAntiFling()
+    antiFlingEnabled = not antiFlingEnabled
+    if antiFlingEnabled then
+        antiFlingBtn.Text = "Anti Fling [ON]"
+        antiFlingBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        antiFlingLoop = runService.Heartbeat:Connect(function()
+            if not antiFlingEnabled then return end
+            local char = player.Character
+            if char then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then root.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end
+            end
+            for _, p in ipairs(players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    for _, part in ipairs(p.Character:GetChildren()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                            part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                            part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                        end
+                    end
+                end
+            end
+        end)
+    else
+        antiFlingBtn.Text = "Anti Fling [OFF]"
+        antiFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end
+    end
+end
+
+-- Логика X-Ray
+local function applyXray(p)
+    if p == player or not p.Character then return end
+    if not p.Character:FindFirstChild("XrayHighlight") then
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "XrayHighlight"
+        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineTransparency = 0
+        highlight.Adornee = p.Character
+        highlight.Parent = p.Character
+    end
+end
+
+local function removeXray(p)
+    if p.Character and p.Character:FindFirstChild("XrayHighlight") then
+        p.Character.XrayHighlight:Destroy()
+    end
+end
+
+local function toggleXray()
+    xrayEnabled = not xrayEnabled
+    if xrayEnabled then
+        xrayBtn.Text = "X-Ray [ON]"
+        xrayBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        for _, p in ipairs(players:GetPlayers()) do applyXray(p) end
+        xrayLoop = players.PlayerAdded:Connect(function(p)
+            p.CharacterAdded:Connect(function()
+                task.wait(0.5)
+                if xrayEnabled then applyXray(p) end
+            end)
+        end)
+    else
+        xrayBtn.Text = "X-Ray [OFF]"
+        xrayBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if xrayLoop then xrayLoop:Disconnect() xrayLoop = nil end
+        for _, p in ipairs(players:GetPlayers()) do removeXray(p) end
+    end
+end
+
+-- Модифицированная логика Fly (Полет по направлению камеры LookVector при ходьбе)
+local function toggleFly()
+    flyEnabled = not flyEnabled
+    if flyEnabled then
+        flyBtn.Text = "Fly [ON]"
+        flyBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+
+        local char = player.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char:FindFirstChild("Humanoid")
+        if not root or not humanoid then return end
+
+        humanoid.PlatformStand = true
+
+        flyLoop = runService.Heartbeat:Connect(function()
+            if not flyEnabled or not root or not humanoid then return end
+            
+            local moveInput = humanoid.MoveDirection -- Динамический джойстик/WASD вектор направления движения
+            
+            if moveInput.Magnitude > 0 then
+                -- Рассчитываем движение строго по 3D-вектору взгляда камеры (включая углы вверх и вниз)
+                local cameraLook = camera.CFrame.LookVector
+                
+                -- Совмещаем вектор инпута движения игрока с направлением камеры
+                local flyDirection = Vector3.new(0, 0, 0)
+                
+                -- Если игрок жмет вперед, летим прямо в точку взгляда камеры
+                if moveInput:Dot(camera.CFrame.RightVector) > 0.5 then
+                    flyDirection = camera.CFrame.RightVector
+                elseif moveInput:Dot(-camera.CFrame.RightVector) > 0.5 then
+                    flyDirection = -camera.CFrame.RightVector
+                elseif moveInput:Dot(camera.CFrame.LookVector) > -0.5 then
+                    flyDirection = cameraLook
+                else
+                    flyDirection = -cameraLook
+                end
+                
+                root.Velocity = flyDirection * flySpeed
+            else
+                -- Если инпута движения нет, удерживаем персонажа на месте, гася инерцию
+                root.Velocity = Vector3.new(0, 0, 0)
+            end
+            
+            -- Вращаем фрейм персонажа вслед за горизонтальным вектором камеры
+            root.CFrame = CFrame.new(root.Position, root.Position + Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z))
+        end)
+    else
+        flyBtn.Text = "Fly [OFF]"
+        flyBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if flyLoop then flyLoop:Disconnect() flyLoop = nil end
+        
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.PlatformStand = false
+        end
+    end
+end
+
+-- Ивенты
+godBtn.MouseButton1Click:Connect(toggleGodMode)
+noclipBtn.MouseButton1Click:Connect(toggleNoclip)
+antiFlingBtn.MouseButton1Click:Connect(toggleAntiFling)
+xrayBtn.MouseButton1Click:Connect(toggleXray)
+flyBtn.MouseButton1Click:Connect(toggleFly)
+
+player.CharacterAdded:Connect(function(newCharacter)
+    if godModeEnabled then task.wait(0.2) setupGodMode(newCharacter) end
+    if flyEnabled then task.wait(0.2) local hum = newCharacter:WaitForChild("Humanoid", 5) if hum then hum.PlatformStand = true end end
+    if xrayEnabled then task.wait(0.5) for _, p in ipairs(players:GetPlayers()) do applyXray(p) end end
+end)
