@@ -1,0 +1,675 @@
+-- Контекст: Xeno GUI (DaryllHub) – мобильная адаптация с вертикальными вкладками
+-- Исправлен Camera Noclip: свободное вращение камеры через касания, проход сквозь стены
+-- Исправлен Infinite Jump: бесконечные прыжки в воздухе (как двойной прыжок без ограничений)
+
+local players = game:GetService("Players")
+local runService = game:GetService("RunService")
+local userInputService = game:GetService("UserInputService")
+local coreGui = game:GetService("CoreGui")
+local player = players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- Состояния функций
+local godModeEnabled = false
+local noclipEnabled = false
+local antiFlingEnabled = false
+local xrayEnabled = false
+local flyEnabled = false
+local infiniteJumpEnabled = false
+local cameraNoclipEnabled = false
+
+-- Параметры
+local flySpeed = 10
+local walkSpeed = 16
+local jumpPower = 50
+local cameraDistance = 10
+
+-- Для управления камерой в Camera Noclip
+local camYaw = 0   -- горизонтальный угол (радианы)
+local camPitch = 0 -- вертикальный угол (радианы)
+local isTouching = false
+local touchStartX, touchStartY = 0, 0
+
+-- Переменные для циклов и обработчиков
+local godLoop = nil
+local noclipLoop = nil
+local antiFlingLoop = nil
+local xrayLoop = nil
+local flyLoop = nil
+local infiniteJumpConnection = nil
+local cameraNoclipConnection = nil
+
+-- Создание интерфейса
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DaryllHub_Xeno"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = coreGui:FindFirstChild("RobloxGui") or coreGui
+
+-- Главное окно
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 350, 0, 450)
+mainFrame.Position = UDim2.new(0.5, -175, 0.3, -225)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainFrame
+
+-- Заголовок
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+title.Text = "DaryllHub"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 18
+title.Font = Enum.Font.SourceSansBold
+title.BorderSizePixel = 0
+title.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = title
+
+-- Кнопка показа/скрытия GUI
+local toggleGuiBtn = Instance.new("TextButton")
+toggleGuiBtn.Size = UDim2.new(0, 50, 0, 50)
+toggleGuiBtn.Position = UDim2.new(0.1, 0, 0.1, 0)
+toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+toggleGuiBtn.Text = "Daryll"
+toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleGuiBtn.TextSize = 14
+toggleGuiBtn.Parent = screenGui
+Instance.new("UICorner", toggleGuiBtn).CornerRadius = UDim.new(0, 25)
+
+toggleGuiBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = not mainFrame.Visible
+end)
+
+-- Панель вкладок (вертикальная)
+local tabPanel = Instance.new("Frame")
+tabPanel.Size = UDim2.new(0, 80, 1, -40)
+tabPanel.Position = UDim2.new(0, 0, 0, 40)
+tabPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+tabPanel.BorderSizePixel = 0
+tabPanel.Parent = mainFrame
+
+-- Контейнеры содержимого
+local function createTabContainer(name)
+    local container = Instance.new("ScrollingFrame")
+    container.Name = name .. "Container"
+    container.Size = UDim2.new(1, -80, 1, -40)
+    container.Position = UDim2.new(0, 80, 0, 40)
+    container.BackgroundTransparency = 1
+    container.CanvasSize = UDim2.new(0, 0, 0, 600)
+    container.ScrollBarThickness = 4
+    container.Parent = mainFrame
+    container.Visible = false
+    return container
+end
+
+local playerContainer = createTabContainer("Player")
+local funContainer = createTabContainer("Fun")
+local trollContainer = createTabContainer("Troll")
+
+-- Кнопки вкладок
+local tabNames = {"Player", "Fun", "Troll"}
+local containers = {playerContainer, funContainer, trollContainer}
+local tabButtons = {}
+
+for i, name in ipairs(tabNames) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 45)
+    btn.Position = UDim2.new(0, 0, 0, (i-1)*45)
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.SourceSansBold
+    btn.BorderSizePixel = 0
+    btn.Parent = tabPanel
+    local container = containers[i]
+    btn.MouseButton1Click:Connect(function()
+        for _, c in ipairs(containers) do c.Visible = false end
+        container.Visible = true
+        for _, b in ipairs(tabButtons) do
+            b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+            b.TextColor3 = Color3.fromRGB(200, 200, 200)
+        end
+        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+    tabButtons[name] = btn
+end
+
+playerContainer.Visible = true
+tabButtons["Player"].BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+tabButtons["Player"].TextColor3 = Color3.fromRGB(255, 255, 255)
+
+-- ===== Вспомогательные функции для элементов =====
+local function createToggleButton(text, container, yPos)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.9, 0, 0, 40)
+    btn.Position = UDim2.new(0.05, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.Text = text .. " [OFF]"
+    btn.TextColor3 = Color3.fromRGB(200, 50, 50)
+    btn.TextSize = 15
+    btn.Font = Enum.Font.SourceSansBold
+    btn.Parent = container
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    return btn
+end
+
+local function createSlider(text, container, yPos, minVal, maxVal, defaultValue, onChanged)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0.9, 0, 0, 40)
+    frame.Position = UDim2.new(0.05, 0, 0, yPos)
+    frame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    frame.Parent = container
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.45, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text .. ": " .. tostring(defaultValue)
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.SourceSans
+    label.Parent = frame
+
+    local btnPlus = Instance.new("TextButton")
+    btnPlus.Size = UDim2.new(0.2, 0, 0.8, 0)
+    btnPlus.Position = UDim2.new(0.55, 0, 0.1, 0)
+    btnPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btnPlus.Text = "+"
+    btnPlus.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnPlus.TextSize = 16
+    btnPlus.Parent = frame
+    Instance.new("UICorner", btnPlus).CornerRadius = UDim.new(0, 4)
+
+    local btnMinus = Instance.new("TextButton")
+    btnMinus.Size = UDim2.new(0.2, 0, 0.8, 0)
+    btnMinus.Position = UDim2.new(0.77, 0, 0.1, 0)
+    btnMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btnMinus.Text = "-"
+    btnMinus.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnMinus.TextSize = 16
+    btnMinus.Parent = frame
+    Instance.new("UICorner", btnMinus).CornerRadius = UDim.new(0, 4)
+
+    local currentValue = defaultValue
+    local function updateValue(newVal)
+        newVal = math.clamp(newVal, minVal, maxVal)
+        currentValue = newVal
+        label.Text = text .. ": " .. tostring(currentValue)
+        onChanged(currentValue)
+    end
+
+    btnPlus.MouseButton1Click:Connect(function() updateValue(currentValue + 1) end)
+    btnMinus.MouseButton1Click:Connect(function() updateValue(currentValue - 1) end)
+
+    updateValue(defaultValue)
+    return frame
+end
+
+-- ==================== ВКЛАДКА PLAYER ====================
+local yOffset = 10
+
+createSlider("Walk Speed", playerContainer, yOffset, 16, 100, walkSpeed, function(val)
+    walkSpeed = val
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = walkSpeed
+    end
+end)
+yOffset = yOffset + 50
+
+createSlider("Jump Power", playerContainer, yOffset, 50, 200, jumpPower, function(val)
+    jumpPower = val
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.JumpPower = jumpPower
+    end
+end)
+yOffset = yOffset + 50
+
+-- Бесконечный прыжок (исправлен: разрешает прыжок в воздухе)
+local infiniteJumpBtn = createToggleButton("Infinite Jump", playerContainer, yOffset)
+yOffset = yOffset + 50
+local function toggleInfiniteJump()
+    infiniteJumpEnabled = not infiniteJumpEnabled
+    if infiniteJumpEnabled then
+        infiniteJumpBtn.Text = "Infinite Jump [ON]"
+        infiniteJumpBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        infiniteJumpConnection = userInputService.JumpRequest:Connect(function()
+            if not infiniteJumpEnabled then return end
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChild("Humanoid")
+                if hum then
+                    -- Разрешаем прыжок в любом состоянии (включая воздух)
+                    hum.Jump = true
+                    -- Если персонаж в воздухе, принудительно переключаем состояние на Jumping
+                    if hum.GetState and hum:GetState() == Enum.HumanoidStateType.Freefall then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    end
+                end
+            end
+        end)
+    else
+        infiniteJumpBtn.Text = "Infinite Jump [OFF]"
+        infiniteJumpBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if infiniteJumpConnection then
+            infiniteJumpConnection:Disconnect()
+            infiniteJumpConnection = nil
+        end
+    end
+end
+infiniteJumpBtn.MouseButton1Click:Connect(toggleInfiniteJump)
+
+-- Noclip
+local noclipBtn = createToggleButton("Noclip", playerContainer, yOffset)
+yOffset = yOffset + 50
+local function toggleNoclip()
+    noclipEnabled = not noclipEnabled
+    if noclipEnabled then
+        noclipBtn.Text = "Noclip [ON]"
+        noclipBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        noclipLoop = runService.Stepped:Connect(function()
+            if player.Character and noclipEnabled then
+                for _, part in ipairs(player.Character:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        noclipBtn.Text = "Noclip [OFF]"
+        noclipBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if noclipLoop then
+            noclipLoop:Disconnect()
+            noclipLoop = nil
+        end
+    end
+end
+noclipBtn.MouseButton1Click:Connect(toggleNoclip)
+
+-- God Mode
+local godBtn = createToggleButton("God Mode", playerContainer, yOffset)
+yOffset = yOffset + 50
+local function setupGodMode(character)
+    if not character or not godModeEnabled then return end
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if not humanoid then return end
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+    humanoid.MaxHealth = math.huge
+    humanoid.Health = math.huge
+    for _, part in ipairs(character:GetChildren()) do
+        if part:IsA("BasePart") then part.CanTouch = false end
+    end
+end
+local function toggleGodMode()
+    godModeEnabled = not godModeEnabled
+    if godModeEnabled then
+        godBtn.Text = "God Mode [ON]"
+        godBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        if player.Character then setupGodMode(player.Character) end
+        godLoop = runService.Heartbeat:Connect(function()
+            if player.Character and player.Character:FindFirstChild("Humanoid") then
+                player.Character.Humanoid.Health = player.Character.Humanoid.MaxHealth
+            end
+        end)
+    else
+        godBtn.Text = "God Mode [OFF]"
+        godBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if godLoop then godLoop:Disconnect() godLoop = nil end
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+            player.Character.Humanoid.Health = 100
+        end
+    end
+end
+godBtn.MouseButton1Click:Connect(toggleGodMode)
+
+-- Fly
+local flyBtn = createToggleButton("Fly", playerContainer, yOffset)
+yOffset = yOffset + 50
+local function toggleFly()
+    flyEnabled = not flyEnabled
+    if flyEnabled then
+        flyBtn.Text = "Fly [ON]"
+        flyBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        local char = player.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char:FindFirstChild("Humanoid")
+        if not root or not humanoid then return end
+        humanoid.PlatformStand = true
+        flyLoop = runService.Heartbeat:Connect(function()
+            if not flyEnabled or not root or not humanoid then return end
+            local moveInput = humanoid.MoveDirection
+            if moveInput.Magnitude > 0 then
+                local cameraLook = camera.CFrame.LookVector
+                local flyDirection = Vector3.new(0, 0, 0)
+                if moveInput:Dot(camera.CFrame.RightVector) > 0.5 then
+                    flyDirection = camera.CFrame.RightVector
+                elseif moveInput:Dot(-camera.CFrame.RightVector) > 0.5 then
+                    flyDirection = -camera.CFrame.RightVector
+                elseif moveInput:Dot(camera.CFrame.LookVector) > -0.5 then
+                    flyDirection = cameraLook
+                else
+                    flyDirection = -cameraLook
+                end
+                root.Velocity = flyDirection * flySpeed
+            else
+                root.Velocity = Vector3.new(0, 0, 0)
+            end
+            root.CFrame = CFrame.new(root.Position, root.Position + Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z))
+        end)
+    else
+        flyBtn.Text = "Fly [OFF]"
+        flyBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if flyLoop then flyLoop:Disconnect() flyLoop = nil end
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.PlatformStand = false
+        end
+    end
+end
+flyBtn.MouseButton1Click:Connect(toggleFly)
+
+createSlider("Fly Speed", playerContainer, yOffset, 1, 50, flySpeed, function(val)
+    flySpeed = val
+end)
+yOffset = yOffset + 50
+
+-- ==================== ВКЛАДКА FUN ====================
+local yOffsetFun = 10
+
+-- Anti Fling
+local antiFlingBtn = createToggleButton("Anti Fling", funContainer, yOffsetFun)
+yOffsetFun = yOffsetFun + 50
+local function toggleAntiFling()
+    antiFlingEnabled = not antiFlingEnabled
+    if antiFlingEnabled then
+        antiFlingBtn.Text = "Anti Fling [ON]"
+        antiFlingBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        antiFlingLoop = runService.Heartbeat:Connect(function()
+            if not antiFlingEnabled then return end
+            local char = player.Character
+            if char then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then root.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end
+            end
+            for _, p in ipairs(players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    for _, part in ipairs(p.Character:GetChildren()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                            part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                            part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                        end
+                    end
+                end
+            end
+        end)
+    else
+        antiFlingBtn.Text = "Anti Fling [OFF]"
+        antiFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end
+    end
+end
+antiFlingBtn.MouseButton1Click:Connect(toggleAntiFling)
+
+-- X-Ray
+local xrayBtn = createToggleButton("X-Ray", funContainer, yOffsetFun)
+yOffsetFun = yOffsetFun + 50
+local function applyXray(p)
+    if p == player or not p.Character then return end
+    if not p.Character:FindFirstChild("XrayHighlight") then
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "XrayHighlight"
+        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineTransparency = 0
+        highlight.Adornee = p.Character
+        highlight.Parent = p.Character
+    end
+end
+local function removeXray(p)
+    if p.Character and p.Character:FindFirstChild("XrayHighlight") then
+        p.Character.XrayHighlight:Destroy()
+    end
+end
+local function toggleXray()
+    xrayEnabled = not xrayEnabled
+    if xrayEnabled then
+        xrayBtn.Text = "X-Ray [ON]"
+        xrayBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        for _, p in ipairs(players:GetPlayers()) do applyXray(p) end
+        xrayLoop = players.PlayerAdded:Connect(function(p)
+            p.CharacterAdded:Connect(function()
+                task.wait(0.5)
+                if xrayEnabled then applyXray(p) end
+            end)
+        end)
+    else
+        xrayBtn.Text = "X-Ray [OFF]"
+        xrayBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if xrayLoop then xrayLoop:Disconnect() xrayLoop = nil end
+        for _, p in ipairs(players:GetPlayers()) do removeXray(p) end
+    end
+end
+xrayBtn.MouseButton1Click:Connect(toggleXray)
+
+-- Camera Noclip (исправлен: камера не фиксируется, управление через касания)
+local cameraNoclipBtn = createToggleButton("Camera Noclip", funContainer, yOffsetFun)
+yOffsetFun = yOffsetFun + 50
+
+createSlider("Cam Distance", funContainer, yOffsetFun, 3, 30, cameraDistance, function(val)
+    cameraDistance = val
+end)
+yOffsetFun = yOffsetFun + 50
+
+-- Обработка касаний для управления камерой (только когда Camera Noclip включён)
+userInputService.TouchStarted:Connect(function(input, processed)
+    if processed then return end
+    if not cameraNoclipEnabled then return end
+    isTouching = true
+    touchStartX = input.Position.X
+    touchStartY = input.Position.Y
+end)
+
+userInputService.TouchMoved:Connect(function(input, processed)
+    if processed then return end
+    if not cameraNoclipEnabled or not isTouching then return end
+    local deltaX = input.Position.X - touchStartX
+    local deltaY = input.Position.Y - touchStartY
+    -- Чувствительность
+    local sensitivity = 0.005
+    camYaw = camYaw - deltaX * sensitivity
+    camPitch = math.clamp(camPitch - deltaY * sensitivity, -math.pi/2 + 0.1, math.pi/2 - 0.1)
+    touchStartX = input.Position.X
+    touchStartY = input.Position.Y
+end)
+
+userInputService.TouchEnded:Connect(function(input, processed)
+    if processed then return end
+    isTouching = false
+end)
+
+local function toggleCameraNoclip()
+    cameraNoclipEnabled = not cameraNoclipEnabled
+    if cameraNoclipEnabled then
+        cameraNoclipBtn.Text = "Camera Noclip [ON]"
+        cameraNoclipBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        camera.CameraType = Enum.CameraType.Scriptable
+        -- Сброс углов при включении (камера сзади)
+        camYaw = 0
+        camPitch = 0
+        cameraNoclipConnection = runService.RenderStepped:Connect(function()
+            if not cameraNoclipEnabled then return end
+            local char = player.Character
+            if not char then return end
+            local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+            if not root then return end
+            local targetPos = root.Position
+            -- Вычисляем направление от персонажа на основе углов
+            local direction = Vector3.new(
+                math.cos(camPitch) * math.sin(camYaw),
+                math.sin(camPitch),
+                math.cos(camPitch) * math.cos(camYaw)
+            )
+            local camPos = targetPos - direction * cameraDistance + Vector3.new(0, 2, 0)
+            camera.CFrame = CFrame.new(camPos, targetPos)
+        end)
+    else
+        cameraNoclipBtn.Text = "Camera Noclip [OFF]"
+        cameraNoclipBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if cameraNoclipConnection then
+            cameraNoclipConnection:Disconnect()
+            cameraNoclipConnection = nil
+        end
+        camera.CameraType = Enum.CameraType.Custom
+    end
+end
+cameraNoclipBtn.MouseButton1Click:Connect(toggleCameraNoclip)
+
+-- ==================== ВКЛАДКА TROLL ====================
+local yOffsetTroll = 10
+
+-- Список игроков
+local playerListFrame = Instance.new("Frame")
+playerListFrame.Size = UDim2.new(0.9, 0, 0, 160)
+playerListFrame.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
+playerListFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+playerListFrame.Parent = trollContainer
+Instance.new("UICorner", playerListFrame).CornerRadius = UDim.new(0, 6)
+
+local playerListScroll = Instance.new("ScrollingFrame")
+playerListScroll.Size = UDim2.new(1, 0, 1, 0)
+playerListScroll.BackgroundTransparency = 1
+playerListScroll.CanvasSize = UDim2.new(0, 0, 0, 100)
+playerListScroll.ScrollBarThickness = 4
+playerListScroll.Parent = playerListFrame
+
+local playerListLabel = Instance.new("TextLabel")
+playerListLabel.Size = UDim2.new(1, 0, 0, 20)
+playerListLabel.BackgroundTransparency = 1
+playerListLabel.Text = "Select player:"
+playerListLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+playerListLabel.TextSize = 12
+playerListLabel.Font = Enum.Font.SourceSans
+playerListLabel.Parent = playerListScroll
+
+local selectedPlayer = nil
+local playerButtons = {}
+
+local function updatePlayerList()
+    for _, child in ipairs(playerListScroll:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    playerButtons = {}
+    local y = 25
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= player then
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, 0, 0, 30)
+            btn.Position = UDim2.new(0, 0, 0, y)
+            btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            btn.Text = p.Name
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.TextSize = 14
+            btn.Font = Enum.Font.SourceSans
+            btn.Parent = playerListScroll
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+            btn.MouseButton1Click:Connect(function()
+                for _, b in ipairs(playerButtons) do
+                    b.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+                end
+                btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+                selectedPlayer = p
+            end)
+            table.insert(playerButtons, btn)
+            y = y + 35
+        end
+    end
+    playerListScroll.CanvasSize = UDim2.new(0, 0, 0, y + 10)
+end
+
+updatePlayerList()
+players.PlayerAdded:Connect(updatePlayerList)
+players.PlayerRemoving:Connect(updatePlayerList)
+
+yOffsetTroll = yOffsetTroll + 170
+
+-- Кнопка Fling
+local flingBtn = Instance.new("TextButton")
+flingBtn.Size = UDim2.new(0.9, 0, 0, 45)
+flingBtn.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
+flingBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+flingBtn.Text = "Fling!"
+flingBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
+flingBtn.TextSize = 18
+flingBtn.Font = Enum.Font.SourceSansBold
+flingBtn.Parent = trollContainer
+Instance.new("UICorner", flingBtn).CornerRadius = UDim.new(0, 6)
+
+flingBtn.MouseButton1Click:Connect(function()
+    if selectedPlayer and selectedPlayer.Character then
+        local root = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if root then
+            local randomDir = Vector3.new(math.random(-50, 50), 200, math.random(-50, 50))
+            root.Velocity = randomDir
+            root.AssemblyLinearVelocity = randomDir
+        end
+    else
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            char.HumanoidRootPart.Velocity = Vector3.new(0, 200, 0)
+        end
+    end
+end)
+
+-- ==================== ОБЩИЕ СОБЫТИЯ ====================
+player.CharacterAdded:Connect(function(newCharacter)
+    task.wait(0.2)
+    local humanoid = newCharacter:WaitForChild("Humanoid", 5)
+    if humanoid then
+        humanoid.WalkSpeed = walkSpeed
+        humanoid.JumpPower = jumpPower
+    end
+    if godModeEnabled then setupGodMode(newCharacter) end
+    if flyEnabled then
+        local hum = newCharacter:FindFirstChild("Humanoid")
+        if hum then hum.PlatformStand = true end
+    end
+    if xrayEnabled then
+        task.wait(0.5)
+        for _, p in ipairs(players:GetPlayers()) do applyXray(p) end
+    end
+end)
+
+player:GetPropertyChangedSignal("Character"):Connect(function()
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = walkSpeed
+        char.Humanoid.JumpPower = jumpPower
+    end
+end)
+
+task.wait(1)
+if player.Character and player.Character:FindFirstChild("Humanoid") then
+    player.Character.Humanoid.WalkSpeed = walkSpeed
+    player.Character.Humanoid.JumpPower = jumpPower
+end
+
+print("DaryllHub Xeno loaded successfully (fixed Camera Noclip & Infinite Jump)!")
