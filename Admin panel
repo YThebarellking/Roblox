@@ -1,6 +1,6 @@
 -- Контекст: Xeno GUI (DaryllHub) – мобильная адаптация с вертикальными вкладками
--- Исправлен Camera Noclip: свободное вращение камеры через касания, проход сквозь стены
--- Исправлен Infinite Jump: бесконечные прыжки в воздухе (как двойной прыжок без ограничений)
+-- Усилен Touch Fling и Fling Teleport (коэффициенты ×50000, стабильный Heartbeat)
+-- Исправлен сброс позиции и добавлена кнопка "None" для отмены привязки к цели
 
 local players = game:GetService("Players")
 local runService = game:GetService("RunService")
@@ -25,8 +25,8 @@ local jumpPower = 50
 local cameraDistance = 10
 
 -- Для управления камерой в Camera Noclip
-local camYaw = 0   -- горизонтальный угол (радианы)
-local camPitch = 0 -- вертикальный угол (радианы)
+local camYaw = 0
+local camPitch = 0
 local isTouching = false
 local touchStartX, touchStartY = 0, 0
 
@@ -38,6 +38,9 @@ local xrayLoop = nil
 local flyLoop = nil
 local infiniteJumpConnection = nil
 local cameraNoclipConnection = nil
+
+-- Для Touch Fling (сохранение позиции)
+local touchFlingStartPos = nil
 
 -- Создание интерфейса
 local screenGui = Instance.new("ScreenGui")
@@ -149,7 +152,7 @@ playerContainer.Visible = true
 tabButtons["Player"].BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 tabButtons["Player"].TextColor3 = Color3.fromRGB(255, 255, 255)
 
--- ===== Вспомогательные функции для элементов =====
+-- ===== Вспомогательные функции =====
 local function createToggleButton(text, container, yPos)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.9, 0, 0, 40)
@@ -237,7 +240,7 @@ createSlider("Jump Power", playerContainer, yOffset, 50, 200, jumpPower, functio
 end)
 yOffset = yOffset + 50
 
--- Бесконечный прыжок (исправлен: разрешает прыжок в воздухе)
+-- Бесконечный прыжок
 local infiniteJumpBtn = createToggleButton("Infinite Jump", playerContainer, yOffset)
 yOffset = yOffset + 50
 local function toggleInfiniteJump()
@@ -251,9 +254,7 @@ local function toggleInfiniteJump()
             if char then
                 local hum = char:FindFirstChild("Humanoid")
                 if hum then
-                    -- Разрешаем прыжок в любом состоянии (включая воздух)
                     hum.Jump = true
-                    -- Если персонаж в воздухе, принудительно переключаем состояние на Jumping
                     if hum.GetState and hum:GetState() == Enum.HumanoidStateType.Freefall then
                         hum:ChangeState(Enum.HumanoidStateType.Jumping)
                     end
@@ -468,7 +469,7 @@ local function toggleXray()
 end
 xrayBtn.MouseButton1Click:Connect(toggleXray)
 
--- Camera Noclip (исправлен: камера не фиксируется, управление через касания)
+-- Camera Noclip
 local cameraNoclipBtn = createToggleButton("Camera Noclip", funContainer, yOffsetFun)
 yOffsetFun = yOffsetFun + 50
 
@@ -477,7 +478,6 @@ createSlider("Cam Distance", funContainer, yOffsetFun, 3, 30, cameraDistance, fu
 end)
 yOffsetFun = yOffsetFun + 50
 
--- Обработка касаний для управления камерой (только когда Camera Noclip включён)
 userInputService.TouchStarted:Connect(function(input, processed)
     if processed then return end
     if not cameraNoclipEnabled then return end
@@ -491,7 +491,6 @@ userInputService.TouchMoved:Connect(function(input, processed)
     if not cameraNoclipEnabled or not isTouching then return end
     local deltaX = input.Position.X - touchStartX
     local deltaY = input.Position.Y - touchStartY
-    -- Чувствительность
     local sensitivity = 0.005
     camYaw = camYaw - deltaX * sensitivity
     camPitch = math.clamp(camPitch - deltaY * sensitivity, -math.pi/2 + 0.1, math.pi/2 - 0.1)
@@ -510,7 +509,6 @@ local function toggleCameraNoclip()
         cameraNoclipBtn.Text = "Camera Noclip [ON]"
         cameraNoclipBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
         camera.CameraType = Enum.CameraType.Scriptable
-        -- Сброс углов при включении (камера сзади)
         camYaw = 0
         camPitch = 0
         cameraNoclipConnection = runService.RenderStepped:Connect(function()
@@ -520,7 +518,6 @@ local function toggleCameraNoclip()
             local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
             if not root then return end
             local targetPos = root.Position
-            -- Вычисляем направление от персонажа на основе углов
             local direction = Vector3.new(
                 math.cos(camPitch) * math.sin(camYaw),
                 math.sin(camPitch),
@@ -544,7 +541,6 @@ cameraNoclipBtn.MouseButton1Click:Connect(toggleCameraNoclip)
 -- ==================== ВКЛАДКА TROLL ====================
 local yOffsetTroll = 10
 
--- Список игроков
 local playerListFrame = Instance.new("Frame")
 playerListFrame.Size = UDim2.new(0.9, 0, 0, 160)
 playerListFrame.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
@@ -579,12 +575,36 @@ local function updatePlayerList()
     end
     playerButtons = {}
     local y = 25
+    
+    -- Кнопка сброса привязки флинга (None)
+    local noneBtn = Instance.new("TextButton")
+    noneBtn.Size = UDim2.new(1, 0, 0, 30)
+    noneBtn.Position = UDim2.new(0, 0, 0, y)
+    noneBtn.BackgroundColor3 = selectedPlayer == nil and Color3.fromRGB(70, 70, 70) or Color3.fromRGB(50, 50, 50)
+    noneBtn.Text = "None (No Target)"
+    noneBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+    noneBtn.TextSize = 14
+    noneBtn.Font = Enum.Font.SourceSansBold
+    noneBtn.Parent = playerListScroll
+    Instance.new("UICorner", noneBtn).CornerRadius = UDim.new(0, 4)
+    
+    noneBtn.MouseButton1Click:Connect(function()
+        for _, b in ipairs(playerButtons) do
+            b.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        end
+        noneBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+        selectedPlayer = nil
+    end)
+    table.insert(playerButtons, noneBtn)
+    y = y + 35
+
+    -- Список остальных игроков
     for _, p in ipairs(players:GetPlayers()) do
         if p ~= player then
             local btn = Instance.new("TextButton")
             btn.Size = UDim2.new(1, 0, 0, 30)
             btn.Position = UDim2.new(0, 0, 0, y)
-            btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            btn.BackgroundColor3 = selectedPlayer == p and Color3.fromRGB(70, 70, 70) or Color3.fromRGB(50, 50, 50)
             btn.Text = p.Name
             btn.TextColor3 = Color3.fromRGB(255, 255, 255)
             btn.TextSize = 14
@@ -607,36 +627,151 @@ end
 
 updatePlayerList()
 players.PlayerAdded:Connect(updatePlayerList)
-players.PlayerRemoving:Connect(updatePlayerList)
+players.PlayerRemoving:Connect(function(p)
+    if selectedPlayer == p then selectedPlayer = nil end
+    updatePlayerList()
+end)
 
 yOffsetTroll = yOffsetTroll + 170
 
--- Кнопка Fling
-local flingBtn = Instance.new("TextButton")
-flingBtn.Size = UDim2.new(0.9, 0, 0, 45)
-flingBtn.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
-flingBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-flingBtn.Text = "Fling!"
-flingBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
-flingBtn.TextSize = 18
-flingBtn.Font = Enum.Font.SourceSansBold
-flingBtn.Parent = trollContainer
-Instance.new("UICorner", flingBtn).CornerRadius = UDim.new(0, 6)
+-- Вспомогательная функция флинга (генерирует колоссальный импульс)
+local function applyFlingVelocity(hrp)
+    local multiplier = 50000
+    local currentVelocity = hrp.Velocity
+    
+    hrp.Velocity = currentVelocity * multiplier + Vector3.new(0, multiplier, 0)
+    runService.RenderStepped:Wait()
+    hrp.Velocity = currentVelocity
+    runService.Stepped:Wait()
+    hrp.Velocity = currentVelocity + Vector3.new(0, 0.1, 0)
+end
 
-flingBtn.MouseButton1Click:Connect(function()
-    if selectedPlayer and selectedPlayer.Character then
-        local root = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if root then
-            local randomDir = Vector3.new(math.random(-50, 50), 200, math.random(-50, 50))
-            root.Velocity = randomDir
-            root.AssemblyLinearVelocity = randomDir
+-- ===== ОБНОВЛЕННЫЙ Touch Fling =====
+local touchFlingBtn = Instance.new("TextButton")
+touchFlingBtn.Size = UDim2.new(0.9, 0, 0, 45)
+touchFlingBtn.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
+touchFlingBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+touchFlingBtn.Text = "Touch Fling [OFF]"
+touchFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+touchFlingBtn.TextSize = 18
+touchFlingBtn.Font = Enum.Font.SourceSansBold
+touchFlingBtn.Parent = trollContainer
+Instance.new("UICorner", touchFlingBtn).CornerRadius = UDim.new(0, 6)
+
+local touchFlingActive = false
+local touchFlingConnection = nil
+
+touchFlingBtn.MouseButton1Click:Connect(function()
+    touchFlingActive = not touchFlingActive
+    
+    local myChar = player.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+    if touchFlingActive then
+        if myHRP then
+            touchFlingStartPos = myHRP.CFrame
         end
+        
+        touchFlingBtn.Text = "Touch Fling [ON]"
+        touchFlingBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        
+        touchFlingConnection = runService.Heartbeat:Connect(function()
+            if not touchFlingActive then return end
+            
+            local target = selectedPlayer
+            if target and target.Character then
+                local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                if targetHRP and myHRP then
+                    myHRP.CFrame = targetHRP.CFrame * CFrame.new(math.random(-1, 1), 0, math.random(-1, 1))
+                end
+            end
+            
+            if myHRP then
+                applyFlingVelocity(myHRP)
+            end
+        end)
     else
-        local char = player.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            char.HumanoidRootPart.Velocity = Vector3.new(0, 200, 0)
+        touchFlingBtn.Text = "Touch Fling [OFF]"
+        touchFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        
+        if touchFlingConnection then
+            touchFlingConnection:Disconnect()
+            touchFlingConnection = nil
+        end
+        
+        if myHRP then
+            myHRP.Velocity = Vector3.new(0, 0, 0)
+            myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            myHRP.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            
+            if touchFlingStartPos then
+                task.defer(function()
+                    myHRP.CFrame = touchFlingStartPos
+                    touchFlingStartPos = nil
+                end)
+            end
         end
     end
+end)
+
+yOffsetTroll = yOffsetTroll + 55
+
+-- ===== ОБНОВЛЕННЫЙ Fling Teleport (работает ровно 1 сек как Touch Fling) =====
+local flingTeleportBtn = Instance.new("TextButton")
+flingTeleportBtn.Size = UDim2.new(0.9, 0, 0, 45)
+flingTeleportBtn.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
+flingTeleportBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+flingTeleportBtn.Text = "Fling Teleport"
+flingTeleportBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
+flingTeleportBtn.TextSize = 18
+flingTeleportBtn.Font = Enum.Font.SourceSansBold
+flingTeleportBtn.Parent = trollContainer
+Instance.new("UICorner", flingTeleportBtn).CornerRadius = UDim.new(0, 6)
+
+flingTeleportBtn.MouseButton1Click:Connect(function()
+    local target = selectedPlayer
+    if not target or not target.Character then 
+        print("Fling Teleport requires a target! Select a player (not None).")
+        return 
+    end
+    
+    local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+    local myChar = player.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP or not myHRP then return end
+
+    local myStartCF = myHRP.CFrame
+
+    local oldCollide = {}
+    for _, part in ipairs(myChar:GetChildren()) do
+        if part:IsA("BasePart") then
+            oldCollide[part] = part.CanCollide
+            part.CanCollide = false
+        end
+    end
+
+    -- Удержание на цели в течение 1 секунды (50 тиков по 0.02 сек)
+    for i = 1, 50 do
+        if not target.Character or not targetHRP.Parent or not myHRP.Parent then break end
+        
+        myHRP.CFrame = targetHRP.CFrame * CFrame.new(math.random(-1, 1), 0, math.random(-1, 1))
+        applyFlingVelocity(myHRP)
+        
+        task.wait(0.02)
+    end
+
+    myHRP.Velocity = Vector3.new(0, 0, 0)
+    myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    myHRP.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+
+    task.defer(function()
+        myHRP.CFrame = myStartCF
+        for part, collide in pairs(oldCollide) do
+            if part.Parent then
+                part.CanCollide = collide
+            end
+        end
+    end)
 end)
 
 -- ==================== ОБЩИЕ СОБЫТИЯ ====================
@@ -672,4 +807,4 @@ if player.Character and player.Character:FindFirstChild("Humanoid") then
     player.Character.Humanoid.JumpPower = jumpPower
 end
 
-print("DaryllHub Xeno loaded successfully (fixed Camera Noclip & Infinite Jump)!")
+print("DaryllHub Xeno loaded successfully! Touch Fling fix applied, Fling Teleport synced, None target added.")
