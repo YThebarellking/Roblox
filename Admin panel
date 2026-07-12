@@ -1,6 +1,4 @@
--- Контекст: Xeno GUI (DaryllHub) – мобильная адаптация с вертикальными вкладками
--- Усилен Touch Fling и Fling Teleport (коэффициенты ×50000, стабильный Heartbeat)
--- Исправлен сброс позиции и добавлена кнопка "None" для отмены привязки к цели
+-- Контекст: Xeno GUI (DaryllHub) 
 
 local players = game:GetService("Players")
 local runService = game:GetService("RunService")
@@ -17,18 +15,27 @@ local xrayEnabled = false
 local flyEnabled = false
 local infiniteJumpEnabled = false
 local cameraNoclipEnabled = false
+local invisibleEnabled = false
 
 -- Параметры
 local flySpeed = 10
 local walkSpeed = 16
 local jumpPower = 50
-local cameraDistance = 10
+local cameraDistance = 12
+local minCamDistance = 2
+local maxCamDistance = 30
+local zoomSpeed = 5
+local lastPinchDistance = nil
 
--- Для управления камерой в Camera Noclip
+-- Углы камеры (для вращения)
 local camYaw = 0
 local camPitch = 0
 local isTouching = false
 local touchStartX, touchStartY = 0, 0
+
+-- Конфиг для Invisible (из скрипта Ziaa)
+local INVISIBILITY_POSITION = Vector3.new(-25.95, 84, 3537.55)
+local invisChair = nil
 
 -- Переменные для циклов и обработчиков
 local godLoop = nil
@@ -38,6 +45,7 @@ local xrayLoop = nil
 local flyLoop = nil
 local infiniteJumpConnection = nil
 local cameraNoclipConnection = nil
+local mouseConnection = nil  -- для отслеживания движения мыши
 
 -- Для Touch Fling (сохранение позиции)
 local touchFlingStartPos = nil
@@ -50,7 +58,7 @@ screenGui.Parent = coreGui:FindFirstChild("RobloxGui") or coreGui
 
 -- Главное окно
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 350, 0, 450)
+mainFrame.Size = UDim2.new(0, 450, 0, 300)
 mainFrame.Position = UDim2.new(0.5, -175, 0.3, -225)
 mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 mainFrame.BorderSizePixel = 0
@@ -104,7 +112,7 @@ tabPanel.Parent = mainFrame
 local function createTabContainer(name)
     local container = Instance.new("ScrollingFrame")
     container.Name = name .. "Container"
-    container.Size = UDim2.new(1, -80, 1, -40)
+    container.Size = UDim2.new(1, -70, 1, -40)
     container.Position = UDim2.new(0, 80, 0, 40)
     container.BackgroundTransparency = 1
     container.CanvasSize = UDim2.new(0, 0, 0, 600)
@@ -389,6 +397,67 @@ createSlider("Fly Speed", playerContainer, yOffset, 1, 50, flySpeed, function(va
 end)
 yOffset = yOffset + 50
 
+-- ==================== INVISIBLE (Ziaa метод) ====================
+local function setCharacterTransparency(character, transparency)
+    if not character then return end
+    for _, descendant in ipairs(character:GetDescendants()) do
+        if descendant:IsA("BasePart") or descendant:IsA("Decal") then
+            descendant.Transparency = transparency
+        end
+    end
+end
+
+local function applyInvisibility(character, enabled)
+    if not character then return end
+    if enabled then
+        if invisChair then invisChair:Destroy() end
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local savedPosition = hrp.CFrame
+        character:MoveTo(INVISIBILITY_POSITION)
+        task.wait(0.15)
+        local seat = Instance.new("Seat")
+        seat.Name = "invischair"
+        seat.Anchored = false
+        seat.CanCollide = false
+        seat.Transparency = 1
+        seat.Position = INVISIBILITY_POSITION
+        seat.Parent = workspace
+        local weld = Instance.new("Weld")
+        weld.Part0 = seat
+        weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+        weld.Parent = seat
+        task.wait()
+        seat.CFrame = savedPosition
+        setCharacterTransparency(character, 0.5)
+        invisChair = seat
+    else
+        if invisChair then
+            invisChair:Destroy()
+            invisChair = nil
+        end
+        setCharacterTransparency(character, 0)
+    end
+end
+
+local invisibleBtn = createToggleButton("Invisible", playerContainer, yOffset)
+yOffset = yOffset + 50
+
+local function toggleInvisible()
+    invisibleEnabled = not invisibleEnabled
+    local char = player.Character
+    if invisibleEnabled then
+        invisibleBtn.Text = "Invisible [ON]"
+        invisibleBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        if char then applyInvisibility(char, true) end
+    else
+        invisibleBtn.Text = "Invisible [OFF]"
+        invisibleBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if char then applyInvisibility(char, false) end
+    end
+end
+invisibleBtn.MouseButton1Click:Connect(toggleInvisible)
+
 -- ==================== ВКЛАДКА FUN ====================
 local yOffsetFun = 10
 
@@ -469,38 +538,44 @@ local function toggleXray()
 end
 xrayBtn.MouseButton1Click:Connect(toggleXray)
 
--- Camera Noclip
+-- ==================== CAMERA NOCLIP (с игровым управлением) ====================
 local cameraNoclipBtn = createToggleButton("Camera Noclip", funContainer, yOffsetFun)
 yOffsetFun = yOffsetFun + 50
 
-createSlider("Cam Distance", funContainer, yOffsetFun, 3, 30, cameraDistance, function(val)
+-- Слайдер дистанции
+local camDistSlider = createSlider("Cam Distance", funContainer, yOffsetFun, 2, 30, cameraDistance, function(val)
     cameraDistance = val
+    if not cameraNoclipEnabled then
+        player.CameraMinZoomDistance = cameraDistance
+        player.CameraMaxZoomDistance = cameraDistance
+    end
 end)
 yOffsetFun = yOffsetFun + 50
 
-userInputService.TouchStarted:Connect(function(input, processed)
-    if processed then return end
+-- Зум (колёсико / пинч)
+userInputService.InputChanged:Connect(function(input)
     if not cameraNoclipEnabled then return end
-    isTouching = true
-    touchStartX = input.Position.X
-    touchStartY = input.Position.Y
+    if input.UserInputType == Enum.UserInputType.MouseWheel then
+        -- Используем zoomSpeed для регулировки шага зума
+        cameraDistance = math.clamp(cameraDistance - (input.Position.Z * zoomSpeed), minCamDistance, maxCamDistance)
+        local label = camDistSlider:FindFirstChildOfClass("TextLabel")
+        if label then label.Text = "Cam Distance: " .. tostring(math.floor(cameraDistance * 10) / 10) end
+    end
 end)
 
-userInputService.TouchMoved:Connect(function(input, processed)
-    if processed then return end
-    if not cameraNoclipEnabled or not isTouching then return end
-    local deltaX = input.Position.X - touchStartX
-    local deltaY = input.Position.Y - touchStartY
-    local sensitivity = 0.005
-    camYaw = camYaw - deltaX * sensitivity
-    camPitch = math.clamp(camPitch - deltaY * sensitivity, -math.pi/2 + 0.1, math.pi/2 - 0.1)
-    touchStartX = input.Position.X
-    touchStartY = input.Position.Y
-end)
-
-userInputService.TouchEnded:Connect(function(input, processed)
-    if processed then return end
-    isTouching = false
+userInputService.TouchPinch:Connect(function(touches, scale, velocity, state)
+    if not cameraNoclipEnabled then return end
+    if state == Enum.UserInputState.Begin then
+        lastPinchDistance = cameraDistance
+    elseif state == Enum.UserInputState.Change and lastPinchDistance then
+        -- Чувствительность пинча также масштабируется от zoomSpeed
+        local factor = (scale - 1) * (zoomSpeed / 5) + 1
+        cameraDistance = math.clamp(lastPinchDistance / factor, minCamDistance, maxCamDistance)
+        local label = camDistSlider:FindFirstChildOfClass("TextLabel")
+        if label then label.Text = "Cam Distance: " .. tostring(math.floor(cameraDistance * 10) / 10) end
+    elseif state == Enum.UserInputState.End then
+        lastPinchDistance = nil
+    end
 end)
 
 local function toggleCameraNoclip()
@@ -508,31 +583,40 @@ local function toggleCameraNoclip()
     if cameraNoclipEnabled then
         cameraNoclipBtn.Text = "Camera Noclip [ON]"
         cameraNoclipBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-        camera.CameraType = Enum.CameraType.Scriptable
-        camYaw = 0
-        camPitch = 0
+        
+        -- Устанавливаем игровые лимиты камеры под наши настройки
+        player.CameraMinZoomDistance = minCamDistance
+        player.CameraMaxZoomDistance = maxCamDistance
+        camera.CameraType = Enum.CameraType.Custom
+        
         cameraNoclipConnection = runService.RenderStepped:Connect(function()
             if not cameraNoclipEnabled then return end
-            local char = player.Character
-            if not char then return end
-            local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
-            if not root then return end
-            local targetPos = root.Position
-            local direction = Vector3.new(
-                math.cos(camPitch) * math.sin(camYaw),
-                math.sin(camPitch),
-                math.cos(camPitch) * math.cos(camYaw)
-            )
-            local camPos = targetPos - direction * cameraDistance + Vector3.new(0, 2, 0)
-            camera.CFrame = CFrame.new(camPos, targetPos)
+            
+            -- Получаем фокус и направление стандартной камеры, чтобы работало нативное вращение мыши/тача
+            local cameraCFrame = camera.CFrame
+            local cameraFocus = camera.Focus
+            
+            -- Рассчитываем вектор направления
+            local lookVector = cameraCFrame.LookVector
+            
+            -- Вычисляем позицию камеры БЕЗ учета Raycast-проверки на стены (Noclip эффект)
+            -- Камера будет находиться ровно на выбранной дистанции с учетом стандартного вращения игрока
+            local targetPos = cameraFocus.Position - (lookVector * cameraDistance)
+            
+            camera.CFrame = CFrame.new(targetPos, cameraFocus.Position)
         end)
     else
         cameraNoclipBtn.Text = "Camera Noclip [OFF]"
         cameraNoclipBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        
         if cameraNoclipConnection then
             cameraNoclipConnection:Disconnect()
             cameraNoclipConnection = nil
         end
+        
+        -- Возвращаем дефолтные лимиты зума для обычной игры
+        player.CameraMinZoomDistance = minCamDistance
+        player.CameraMaxZoomDistance = maxCamDistance
         camera.CameraType = Enum.CameraType.Custom
     end
 end
@@ -646,7 +730,7 @@ local function applyFlingVelocity(hrp)
     hrp.Velocity = currentVelocity + Vector3.new(0, 0.1, 0)
 end
 
--- ===== ОБНОВЛЕННЫЙ Touch Fling =====
+-- Touch Fling
 local touchFlingBtn = Instance.new("TextButton")
 touchFlingBtn.Size = UDim2.new(0.9, 0, 0, 45)
 touchFlingBtn.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
@@ -716,64 +800,6 @@ end)
 
 yOffsetTroll = yOffsetTroll + 55
 
--- ===== ОБНОВЛЕННЫЙ Fling Teleport (работает ровно 1 сек как Touch Fling) =====
-local flingTeleportBtn = Instance.new("TextButton")
-flingTeleportBtn.Size = UDim2.new(0.9, 0, 0, 45)
-flingTeleportBtn.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
-flingTeleportBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-flingTeleportBtn.Text = "Fling Teleport"
-flingTeleportBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
-flingTeleportBtn.TextSize = 18
-flingTeleportBtn.Font = Enum.Font.SourceSansBold
-flingTeleportBtn.Parent = trollContainer
-Instance.new("UICorner", flingTeleportBtn).CornerRadius = UDim.new(0, 6)
-
-flingTeleportBtn.MouseButton1Click:Connect(function()
-    local target = selectedPlayer
-    if not target or not target.Character then 
-        print("Fling Teleport requires a target! Select a player (not None).")
-        return 
-    end
-    
-    local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
-    local myChar = player.Character
-    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    if not targetHRP or not myHRP then return end
-
-    local myStartCF = myHRP.CFrame
-
-    local oldCollide = {}
-    for _, part in ipairs(myChar:GetChildren()) do
-        if part:IsA("BasePart") then
-            oldCollide[part] = part.CanCollide
-            part.CanCollide = false
-        end
-    end
-
-    -- Удержание на цели в течение 1 секунды (50 тиков по 0.02 сек)
-    for i = 1, 50 do
-        if not target.Character or not targetHRP.Parent or not myHRP.Parent then break end
-        
-        myHRP.CFrame = targetHRP.CFrame * CFrame.new(math.random(-1, 1), 0, math.random(-1, 1))
-        applyFlingVelocity(myHRP)
-        
-        task.wait(0.02)
-    end
-
-    myHRP.Velocity = Vector3.new(0, 0, 0)
-    myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    myHRP.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-
-    task.defer(function()
-        myHRP.CFrame = myStartCF
-        for part, collide in pairs(oldCollide) do
-            if part.Parent then
-                part.CanCollide = collide
-            end
-        end
-    end)
-end)
-
 -- ==================== ОБЩИЕ СОБЫТИЯ ====================
 player.CharacterAdded:Connect(function(newCharacter)
     task.wait(0.2)
@@ -791,6 +817,9 @@ player.CharacterAdded:Connect(function(newCharacter)
         task.wait(0.5)
         for _, p in ipairs(players:GetPlayers()) do applyXray(p) end
     end
+    if invisibleEnabled then
+        applyInvisibility(newCharacter, true)
+    end
 end)
 
 player:GetPropertyChangedSignal("Character"):Connect(function()
@@ -807,4 +836,4 @@ if player.Character and player.Character:FindFirstChild("Humanoid") then
     player.Character.Humanoid.JumpPower = jumpPower
 end
 
-print("DaryllHub Xeno loaded successfully! Touch Fling fix applied, Fling Teleport synced, None target added.")
+print("DaryllHub Xeno loaded!")
