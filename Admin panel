@@ -1,5 +1,4 @@
--- Контекст: Xeno GUI (DaryllHub) 
-
+-- Контекст: Xeno GUI (DaryllHub) Бронебойная Версия
 local players = game:GetService("Players")
 local runService = game:GetService("RunService")
 local userInputService = game:GetService("UserInputService")
@@ -16,6 +15,7 @@ local flyEnabled = false
 local infiniteJumpEnabled = false
 local cameraNoclipEnabled = false
 local invisibleEnabled = false
+local antiKickEnabled = false 
 
 -- Параметры
 local flySpeed = 10
@@ -27,15 +27,10 @@ local maxCamDistance = 30
 local zoomSpeed = 5
 local lastPinchDistance = nil
 
--- Углы камеры (для вращения)
-local camYaw = 0
-local camPitch = 0
-local isTouching = false
-local touchStartX, touchStartY = 0, 0
-
--- Конфиг для Invisible (из скрипта Ziaa)
+-- Конфиг для Invisible (Оригинальные безопасные координаты Ziaa)
 local INVISIBILITY_POSITION = Vector3.new(-25.95, 84, 3537.55)
 local invisChair = nil
+local invisConnection = nil
 
 -- Переменные для циклов и обработчиков
 local godLoop = nil
@@ -45,9 +40,7 @@ local xrayLoop = nil
 local flyLoop = nil
 local infiniteJumpConnection = nil
 local cameraNoclipConnection = nil
-local mouseConnection = nil  -- для отслеживания движения мыши
 
--- Для Touch Fling (сохранение позиции)
 local touchFlingStartPos = nil
 
 -- Создание интерфейса
@@ -59,18 +52,21 @@ screenGui.Parent = coreGui:FindFirstChild("RobloxGui") or coreGui
 -- Главное окно
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 450, 0, 300)
-mainFrame.Position = UDim2.new(0.5, -175, 0.3, -225)
+mainFrame.Position = UDim2.new(0.5, -225, 0.5, -150)
 mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
-mainFrame.Draggable = true
+mainFrame.Draggable = false 
 mainFrame.Parent = screenGui
+
+runService.RenderStepped:Connect(function()
+    mainFrame.Position = UDim2.new(0.5, -225, 0.5, -150)
+end)
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
 
--- Заголовок
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 40)
 title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
@@ -85,10 +81,9 @@ local titleCorner = Instance.new("UICorner")
 titleCorner.CornerRadius = UDim.new(0, 8)
 titleCorner.Parent = title
 
--- Кнопка показа/скрытия GUI
 local toggleGuiBtn = Instance.new("TextButton")
 toggleGuiBtn.Size = UDim2.new(0, 50, 0, 50)
-toggleGuiBtn.Position = UDim2.new(0.1, 0, 0.1, 0)
+toggleGuiBtn.Position = UDim2.new(0.02, 0, 0.1, 0)
 toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 toggleGuiBtn.Text = "Daryll"
 toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -100,7 +95,6 @@ toggleGuiBtn.MouseButton1Click:Connect(function()
     mainFrame.Visible = not mainFrame.Visible
 end)
 
--- Панель вкладок (вертикальная)
 local tabPanel = Instance.new("Frame")
 tabPanel.Size = UDim2.new(0, 80, 1, -40)
 tabPanel.Position = UDim2.new(0, 0, 0, 40)
@@ -108,14 +102,13 @@ tabPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 tabPanel.BorderSizePixel = 0
 tabPanel.Parent = mainFrame
 
--- Контейнеры содержимого
 local function createTabContainer(name)
     local container = Instance.new("ScrollingFrame")
     container.Name = name .. "Container"
     container.Size = UDim2.new(1, -70, 1, -40)
     container.Position = UDim2.new(0, 80, 0, 40)
     container.BackgroundTransparency = 1
-    container.CanvasSize = UDim2.new(0, 0, 0, 600)
+    container.CanvasSize = UDim2.new(0, 0, 0, 650) 
     container.ScrollBarThickness = 4
     container.Parent = mainFrame
     container.Visible = false
@@ -126,7 +119,6 @@ local playerContainer = createTabContainer("Player")
 local funContainer = createTabContainer("Fun")
 local trollContainer = createTabContainer("Troll")
 
--- Кнопки вкладок
 local tabNames = {"Player", "Fun", "Troll"}
 local containers = {playerContainer, funContainer, trollContainer}
 local tabButtons = {}
@@ -160,7 +152,6 @@ playerContainer.Visible = true
 tabButtons["Player"].BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 tabButtons["Player"].TextColor3 = Color3.fromRGB(255, 255, 255)
 
--- ===== Вспомогательные функции =====
 local function createToggleButton(text, container, yPos)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.9, 0, 0, 40)
@@ -308,38 +299,58 @@ local function toggleNoclip()
 end
 noclipBtn.MouseButton1Click:Connect(toggleNoclip)
 
--- God Mode
+-- НАДЁЖНЫЙ God Mode (Защита от Touch-скриптов смерти и киллбриков)
 local godBtn = createToggleButton("God Mode", playerContainer, yOffset)
 yOffset = yOffset + 50
+
 local function setupGodMode(character)
     if not character or not godModeEnabled then return end
     local humanoid = character:WaitForChild("Humanoid", 10)
     if not humanoid then return end
+    
     humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
     humanoid.MaxHealth = math.huge
     humanoid.Health = math.huge
-    for _, part in ipairs(character:GetChildren()) do
-        if part:IsA("BasePart") then part.CanTouch = false end
+    
+    -- Блокируем регистрацию касаний киллбриков на сервере
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then 
+            part.CanTouch = false 
+        end
     end
 end
+
 local function toggleGodMode()
     godModeEnabled = not godModeEnabled
     if godModeEnabled then
         godBtn.Text = "God Mode [ON]"
         godBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
         if player.Character then setupGodMode(player.Character) end
+        
         godLoop = runService.Heartbeat:Connect(function()
-            if player.Character and player.Character:FindFirstChild("Humanoid") then
-                player.Character.Humanoid.Health = player.Character.Humanoid.MaxHealth
+            local char = player.Character
+            if char and char:FindFirstChild("Humanoid") then
+                char.Humanoid.Health = char.Humanoid.MaxHealth
+                -- Постоянно отключаем CanTouch для новых или обновленных частей (например, при экипировке предметов)
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanTouch then 
+                        part.CanTouch = false 
+                    end
+                end
             end
         end)
     else
         godBtn.Text = "God Mode [OFF]"
         godBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if godLoop then godLoop:Disconnect() godLoop = nil end
-        if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
-            player.Character.Humanoid.Health = 100
+        
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+            char.Humanoid.Health = 100
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanTouch = true end
+            end
         end
     end
 end
@@ -397,7 +408,7 @@ createSlider("Fly Speed", playerContainer, yOffset, 1, 50, flySpeed, function(va
 end)
 yOffset = yOffset + 50
 
--- ==================== INVISIBLE (Ziaa метод) ====================
+-- ==================== СКРЫТНЫЙ INVISIBLE (Ziaa метод со скрытием предметов) ====================
 local function setCharacterTransparency(character, transparency)
     if not character then return end
     for _, descendant in ipairs(character:GetDescendants()) do
@@ -411,11 +422,15 @@ local function applyInvisibility(character, enabled)
     if not character then return end
     if enabled then
         if invisChair then invisChair:Destroy() end
+        if invisConnection then invisConnection:Disconnect() end
+        
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
         local savedPosition = hrp.CFrame
+        
         character:MoveTo(INVISIBILITY_POSITION)
         task.wait(0.15)
+        
         local seat = Instance.new("Seat")
         seat.Name = "invischair"
         seat.Anchored = false
@@ -423,19 +438,27 @@ local function applyInvisibility(character, enabled)
         seat.Transparency = 1
         seat.Position = INVISIBILITY_POSITION
         seat.Parent = workspace
+        
         local weld = Instance.new("Weld")
         weld.Part0 = seat
         weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
         weld.Parent = seat
         task.wait()
+        
         seat.CFrame = savedPosition
-        setCharacterTransparency(character, 0.5)
+        setCharacterTransparency(character, 1) -- Полная незаметность (прозрачность 1)
         invisChair = seat
+        
+        -- Динамическая защита: прячем подобранное оружие / предметы во время невидимости
+        invisConnection = character.ChildAdded:Connect(function(child)
+            task.wait()
+            if child:IsA("Tool") or child:IsA("BasePart") then
+                setCharacterTransparency(child, 1)
+            end
+        end)
     else
-        if invisChair then
-            invisChair:Destroy()
-            invisChair = nil
-        end
+        if invisChair then invisChair:Destroy() invisChair = nil end
+        if invisConnection then invisConnection:Disconnect() invisConnection = nil end
         setCharacterTransparency(character, 0)
     end
 end
@@ -457,6 +480,55 @@ local function toggleInvisible()
     end
 end
 invisibleBtn.MouseButton1Click:Connect(toggleInvisible)
+
+-- ==================== БЕЗОПАСНЫЙ ANTI KICK (Двойной перехват без логов) ====================
+local antiKickBtn = createToggleButton("Anti Kick", playerContainer, yOffset)
+yOffset = yOffset + 50
+
+local function toggleAntiKick()
+    antiKickEnabled = not antiKickEnabled
+    if antiKickEnabled then
+        antiKickBtn.Text = "Anti Kick [ON]"
+        antiKickBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        
+        -- Способ 1: Прямой хук на функцию Kick игрока (самый незаметный метод для читов)
+        if hookfunction then
+            hookfunction(player.Kick, function(self, ...) 
+                if antiKickEnabled then return nil end
+                return player.Kick(self, ...)
+            end)
+        end
+        
+        -- Способ 2: Защищенный хук метатаблицы (исправлен синтаксический баг)
+        local gmt = getrawmetatable(game)
+        if gmt and setreadonly then
+            setreadonly(gmt, false)
+            local oldNamecall = gmt.__namecall
+            local oldIndex = gmt.__index
+            
+            gmt.__namecall = newcclosure(function(self, ...)
+                local method = getnamecallmethod()
+                if antiKickEnabled and (method == "Kick" or method == "kick") and self == player then
+                    return nil 
+                end
+                return oldNamecall(self, ...)
+            end)
+            
+            gmt.__index = newcclosure(function(self, key)
+                if antiKickEnabled and tostring(key):lower() == "kick" and self == player then
+                    return newcclosure(function() return nil end)
+                end
+                return oldIndex(self, key)
+            end)
+            setreadonly(gmt, true)
+        end
+    else
+        antiKickBtn.Text = "Anti Kick [OFF]"
+        antiKickBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+    end
+end
+antiKickBtn.MouseButton1Click:Connect(toggleAntiKick)
+
 
 -- ==================== ВКЛАДКА FUN ====================
 local yOffsetFun = 10
@@ -499,35 +571,68 @@ antiFlingBtn.MouseButton1Click:Connect(toggleAntiFling)
 -- X-Ray
 local xrayBtn = createToggleButton("X-Ray", funContainer, yOffsetFun)
 yOffsetFun = yOffsetFun + 50
+
 local function applyXray(p)
     if p == player or not p.Character then return end
+    
     if not p.Character:FindFirstChild("XrayHighlight") then
         local highlight = Instance.new("Highlight")
         highlight.Name = "XrayHighlight"
         highlight.FillColor = Color3.fromRGB(255, 0, 0)
-        highlight.FillTransparency = 0.5
+        highlight.FillTransparency = 0.3 
         highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         highlight.OutlineTransparency = 0
         highlight.Adornee = p.Character
         highlight.Parent = p.Character
     end
-end
-local function removeXray(p)
-    if p.Character and p.Character:FindFirstChild("XrayHighlight") then
-        p.Character.XrayHighlight:Destroy()
+    
+    local head = p.Character:FindFirstChild("Head")
+    if head and not head:FindFirstChild("XrayNameTag") then
+        local bGui = Instance.new("BillboardGui")
+        bGui.Name = "XrayNameTag"
+        bGui.AlwaysOnTop = true
+        bGui.Size = UDim2.new(0, 200, 0, 50)
+        bGui.ExtentsOffset = Vector3.new(0, 3, 0)
+        bGui.Adornee = head
+        bGui.Parent = head
+        
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Size = UDim2.new(1, 0, 1, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.Text = p.Name
+        textLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+        textLabel.TextSize = 14
+        textLabel.Font = Enum.Font.SourceSansBold
+        textLabel.TextStrokeTransparency = 0
+        textLabel.Parent = bGui
     end
 end
+
+local function removeXray(p)
+    if p.Character then
+        if p.Character:FindFirstChild("XrayHighlight") then
+            p.Character.XrayHighlight:Destroy()
+        end
+        local head = p.Character:FindFirstChild("Head")
+        if head and head:FindFirstChild("XrayNameTag") then
+            head.XrayNameTag:Destroy()
+        end
+    end
+end
+
 local function toggleXray()
     xrayEnabled = not xrayEnabled
     if xrayEnabled then
         xrayBtn.Text = "X-Ray [ON]"
         xrayBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-        for _, p in ipairs(players:GetPlayers()) do applyXray(p) end
-        xrayLoop = players.PlayerAdded:Connect(function(p)
-            p.CharacterAdded:Connect(function()
-                task.wait(0.5)
-                if xrayEnabled then applyXray(p) end
-            end)
+        
+        xrayLoop = runService.Heartbeat:Connect(function()
+            if not xrayEnabled then return end
+            for _, p in ipairs(players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    applyXray(p)
+                end
+            end
         end)
     else
         xrayBtn.Text = "X-Ray [OFF]"
@@ -538,11 +643,10 @@ local function toggleXray()
 end
 xrayBtn.MouseButton1Click:Connect(toggleXray)
 
--- ==================== CAMERA NOCLIP (с игровым управлением) ====================
+-- ==================== CAMERA NOCLIP ====================
 local cameraNoclipBtn = createToggleButton("Camera Noclip", funContainer, yOffsetFun)
 yOffsetFun = yOffsetFun + 50
 
--- Слайдер дистанции
 local camDistSlider = createSlider("Cam Distance", funContainer, yOffsetFun, 2, 30, cameraDistance, function(val)
     cameraDistance = val
     if not cameraNoclipEnabled then
@@ -552,11 +656,9 @@ local camDistSlider = createSlider("Cam Distance", funContainer, yOffsetFun, 2, 
 end)
 yOffsetFun = yOffsetFun + 50
 
--- Зум (колёсико / пинч)
 userInputService.InputChanged:Connect(function(input)
     if not cameraNoclipEnabled then return end
     if input.UserInputType == Enum.UserInputType.MouseWheel then
-        -- Используем zoomSpeed для регулировки шага зума
         cameraDistance = math.clamp(cameraDistance - (input.Position.Z * zoomSpeed), minCamDistance, maxCamDistance)
         local label = camDistSlider:FindFirstChildOfClass("TextLabel")
         if label then label.Text = "Cam Distance: " .. tostring(math.floor(cameraDistance * 10) / 10) end
@@ -568,7 +670,6 @@ userInputService.TouchPinch:Connect(function(touches, scale, velocity, state)
     if state == Enum.UserInputState.Begin then
         lastPinchDistance = cameraDistance
     elseif state == Enum.UserInputState.Change and lastPinchDistance then
-        -- Чувствительность пинча также масштабируется от zoomSpeed
         local factor = (scale - 1) * (zoomSpeed / 5) + 1
         cameraDistance = math.clamp(lastPinchDistance / factor, minCamDistance, maxCamDistance)
         local label = camDistSlider:FindFirstChildOfClass("TextLabel")
@@ -584,7 +685,6 @@ local function toggleCameraNoclip()
         cameraNoclipBtn.Text = "Camera Noclip [ON]"
         cameraNoclipBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
         
-        -- Устанавливаем игровые лимиты камеры под наши настройки
         player.CameraMinZoomDistance = minCamDistance
         player.CameraMaxZoomDistance = maxCamDistance
         camera.CameraType = Enum.CameraType.Custom
@@ -592,15 +692,9 @@ local function toggleCameraNoclip()
         cameraNoclipConnection = runService.RenderStepped:Connect(function()
             if not cameraNoclipEnabled then return end
             
-            -- Получаем фокус и направление стандартной камеры, чтобы работало нативное вращение мыши/тача
             local cameraCFrame = camera.CFrame
             local cameraFocus = camera.Focus
-            
-            -- Рассчитываем вектор направления
             local lookVector = cameraCFrame.LookVector
-            
-            -- Вычисляем позицию камеры БЕЗ учета Raycast-проверки на стены (Noclip эффект)
-            -- Камера будет находиться ровно на выбранной дистанции с учетом стандартного вращения игрока
             local targetPos = cameraFocus.Position - (lookVector * cameraDistance)
             
             camera.CFrame = CFrame.new(targetPos, cameraFocus.Position)
@@ -614,7 +708,6 @@ local function toggleCameraNoclip()
             cameraNoclipConnection = nil
         end
         
-        -- Возвращаем дефолтные лимиты зума для обычной игры
         player.CameraMinZoomDistance = minCamDistance
         player.CameraMaxZoomDistance = maxCamDistance
         camera.CameraType = Enum.CameraType.Custom
@@ -660,7 +753,6 @@ local function updatePlayerList()
     playerButtons = {}
     local y = 25
     
-    -- Кнопка сброса привязки флинга (None)
     local noneBtn = Instance.new("TextButton")
     noneBtn.Size = UDim2.new(1, 0, 0, 30)
     noneBtn.Position = UDim2.new(0, 0, 0, y)
@@ -682,7 +774,6 @@ local function updatePlayerList()
     table.insert(playerButtons, noneBtn)
     y = y + 35
 
-    -- Список остальных игроков
     for _, p in ipairs(players:GetPlayers()) do
         if p ~= player then
             local btn = Instance.new("TextButton")
@@ -718,7 +809,6 @@ end)
 
 yOffsetTroll = yOffsetTroll + 170
 
--- Вспомогательная функция флинга (генерирует колоссальный импульс)
 local function applyFlingVelocity(hrp)
     local multiplier = 50000
     local currentVelocity = hrp.Velocity
@@ -752,8 +842,10 @@ touchFlingBtn.MouseButton1Click:Connect(function()
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
 
     if touchFlingActive then
-        if myHRP then
+        if myHRP and selectedPlayer ~= nil then
             touchFlingStartPos = myHRP.CFrame
+        else
+            touchFlingStartPos = nil 
         end
         
         touchFlingBtn.Text = "Touch Fling [ON]"
@@ -813,10 +905,6 @@ player.CharacterAdded:Connect(function(newCharacter)
         local hum = newCharacter:FindFirstChild("Humanoid")
         if hum then hum.PlatformStand = true end
     end
-    if xrayEnabled then
-        task.wait(0.5)
-        for _, p in ipairs(players:GetPlayers()) do applyXray(p) end
-    end
     if invisibleEnabled then
         applyInvisibility(newCharacter, true)
     end
@@ -836,4 +924,4 @@ if player.Character and player.Character:FindFirstChild("Humanoid") then
     player.Character.Humanoid.JumpPower = jumpPower
 end
 
-print("DaryllHub Xeno loaded!")
+print("DaryllHub Xeno Hardened Version Loaded!")
