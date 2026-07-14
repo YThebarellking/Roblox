@@ -1,4 +1,4 @@
--- Контекст: Xeno GUI (DaryllHub) Бронебойная Версия
+-- Xeno GUI (DaryllHub)
 local players = game:GetService("Players")
 local runService = game:GetService("RunService")
 local userInputService = game:GetService("UserInputService")
@@ -15,32 +15,26 @@ local flyEnabled = false
 local infiniteJumpEnabled = false
 local cameraNoclipEnabled = false
 local invisibleEnabled = false
-local antiKickEnabled = false 
 
 -- Параметры
-local flySpeed = 10
+local flySpeed = 1
 local walkSpeed = 16
 local jumpPower = 50
 local cameraDistance = 12
 local minCamDistance = 2
-local maxCamDistance = 30
+local maxCamDistance = 50
 local zoomSpeed = 5
-local lastPinchDistance = nil
 
--- Конфиг для Invisible (Оригинальные безопасные координаты Ziaa)
+local lastPinchDistance = nil
 local INVISIBILITY_POSITION = Vector3.new(-25.95, 84, 3537.55)
 local invisChair = nil
 local invisConnection = nil
-
--- Переменные для циклов и обработчиков
 local godLoop = nil
 local noclipLoop = nil
 local antiFlingLoop = nil
 local xrayLoop = nil
-local flyLoop = nil
 local infiniteJumpConnection = nil
 local cameraNoclipConnection = nil
-
 local touchFlingStartPos = nil
 
 -- Создание интерфейса
@@ -234,12 +228,13 @@ createSlider("Jump Power", playerContainer, yOffset, 50, 200, jumpPower, functio
     jumpPower = val
     local char = player.Character
     if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.UseJumpPower = true -- Фикс Jump Power
         char.Humanoid.JumpPower = jumpPower
     end
 end)
 yOffset = yOffset + 50
 
--- Бесконечный прыжок
+-- Infinite jump
 local infiniteJumpBtn = createToggleButton("Infinite Jump", playerContainer, yOffset)
 yOffset = yOffset + 50
 local function toggleInfiniteJump()
@@ -299,8 +294,9 @@ local function toggleNoclip()
 end
 noclipBtn.MouseButton1Click:Connect(toggleNoclip)
 
--- НАДЁЖНЫЙ God Mode (Защита от Touch-скриптов смерти и киллбриков)
-local godBtn = createToggleButton("God Mode", playerContainer, yOffset)
+
+-- God mode
+local godBtn = createToggleButton("God Mode (Not all games)", playerContainer, yOffset)
 yOffset = yOffset + 50
 
 local function setupGodMode(character)
@@ -311,8 +307,6 @@ local function setupGodMode(character)
     humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
     humanoid.MaxHealth = math.huge
     humanoid.Health = math.huge
-    
-    -- Блокируем регистрацию касаний киллбриков на сервере
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then 
             part.CanTouch = false 
@@ -323,7 +317,7 @@ end
 local function toggleGodMode()
     godModeEnabled = not godModeEnabled
     if godModeEnabled then
-        godBtn.Text = "God Mode [ON]"
+        godBtn.Text = "God Mode (Not all games) [ON]"
         godBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
         if player.Character then setupGodMode(player.Character) end
         
@@ -331,7 +325,6 @@ local function toggleGodMode()
             local char = player.Character
             if char and char:FindFirstChild("Humanoid") then
                 char.Humanoid.Health = char.Humanoid.MaxHealth
-                -- Постоянно отключаем CanTouch для новых или обновленных частей (например, при экипировке предметов)
                 for _, part in ipairs(char:GetDescendants()) do
                     if part:IsA("BasePart") and part.CanTouch then 
                         part.CanTouch = false 
@@ -340,7 +333,7 @@ local function toggleGodMode()
             end
         end)
     else
-        godBtn.Text = "God Mode [OFF]"
+        godBtn.Text = "God Mode (Not all games) [OFF]"
         godBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if godLoop then godLoop:Disconnect() godLoop = nil end
         
@@ -356,59 +349,160 @@ local function toggleGodMode()
 end
 godBtn.MouseButton1Click:Connect(toggleGodMode)
 
--- Fly
+-- Fly 
 local flyBtn = createToggleButton("Fly", playerContainer, yOffset)
 yOffset = yOffset + 50
+
+local tpwalking = false
+local bg, bv
+
 local function toggleFly()
     flyEnabled = not flyEnabled
+    local speaker = players.LocalPlayer
+    
     if flyEnabled then
         flyBtn.Text = "Fly [ON]"
         flyBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-        local char = player.Character
-        if not char then return end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        local humanoid = char:FindFirstChild("Humanoid")
-        if not root or not humanoid then return end
-        humanoid.PlatformStand = true
-        flyLoop = runService.Heartbeat:Connect(function()
-            if not flyEnabled or not root or not humanoid then return end
-            local moveInput = humanoid.MoveDirection
-            if moveInput.Magnitude > 0 then
-                local cameraLook = camera.CFrame.LookVector
-                local flyDirection = Vector3.new(0, 0, 0)
-                if moveInput:Dot(camera.CFrame.RightVector) > 0.5 then
-                    flyDirection = camera.CFrame.RightVector
-                elseif moveInput:Dot(-camera.CFrame.RightVector) > 0.5 then
-                    flyDirection = -camera.CFrame.RightVector
-                elseif moveInput:Dot(camera.CFrame.LookVector) > -0.5 then
-                    flyDirection = cameraLook
-                else
-                    flyDirection = -cameraLook
+        
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Running,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.StrafingNoPhysics,false)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming,false)
+        speaker.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Swimming)
+        tpwalking = true
+        for i = 1, flySpeed do
+            task.spawn(function()
+                local hb = runService.Heartbeat	
+                local chr = speaker.Character
+                local hum = chr and chr:FindFirstChildWhichIsA("Humanoid")
+                while tpwalking and hb:Wait() and chr and hum and hum.Parent do
+                    if hum.MoveDirection.Magnitude > 0 then
+                        chr:TranslateBy(hum.MoveDirection * 0.2) -- Фикс: Плавный медленный полет
+                    end
                 end
-                root.Velocity = flyDirection * flySpeed
-            else
-                root.Velocity = Vector3.new(0, 0, 0)
-            end
-            root.CFrame = CFrame.new(root.Position, root.Position + Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z))
-        end)
+            end)
+        end
+
+        speaker.Character.Animate.Disabled = true
+        local Char = speaker.Character
+        local Hum = Char:FindFirstChildOfClass("Humanoid") or Char:FindFirstChildOfClass("AnimationController")
+        for i,v in next, Hum:GetPlayingAnimationTracks() do
+            v:AdjustSpeed(0)
+        end
+
+        local torso = speaker.Character:FindFirstChild("Torso") or speaker.Character:FindFirstChild("UpperTorso")
+        if torso then
+            bg = Instance.new("BodyGyro", torso)
+            bg.P = 9e4
+            bg.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+            bg.cframe = torso.CFrame
+            
+            bv = Instance.new("BodyVelocity", torso)
+            bv.velocity = Vector3.new(0, 0.1, 0)
+            bv.maxForce = Vector3.new(9e9, 9e9, 9e9)
+            
+            speaker.Character.Humanoid.PlatformStand = true
+            
+            task.spawn(function()
+                local ctrl = {f = 0, b = 0, l = 0, r = 0}
+                local lastctrl = {f = 0, b = 0, l = 0, r = 0}
+                local speed = 0
+                
+                while flyEnabled or speaker.Character.Humanoid.Health == 0 do
+                    runService.RenderStepped:Wait()
+                    
+                    local maxspeed = flySpeed * 15 -- Фикс: Зависимость скорости от ползунка
+                    
+                    if ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0 then
+                        speed = speed + 0.5 + (speed / maxspeed)
+                        if speed > maxspeed then
+                            speed = maxspeed
+                        end
+                    elseif not (ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0) and speed ~= 0 then
+                        speed = speed - 1
+                        if speed < 0 then
+                            speed = 0
+                        end
+                    end
+                    
+                    if (ctrl.l + ctrl.r) ~= 0 or (ctrl.f + ctrl.b) ~= 0 then
+                        bv.velocity = ((workspace.CurrentCamera.CoordinateFrame.lookVector * (ctrl.f + ctrl.b)) + ((workspace.CurrentCamera.CoordinateFrame * CFrame.new(ctrl.l + ctrl.r, (ctrl.f + ctrl.b) * 0.2, 0).p) - workspace.CurrentCamera.CoordinateFrame.p)) * speed
+                        lastctrl = {f = ctrl.f, b = ctrl.b, l = ctrl.l, r = ctrl.r}
+                    elseif (ctrl.l + ctrl.r) == 0 and (ctrl.f + ctrl.b) == 0 and speed ~= 0 then
+                        bv.velocity = ((workspace.CurrentCamera.CoordinateFrame.lookVector * (lastctrl.f + lastctrl.b)) + ((workspace.CurrentCamera.CoordinateFrame * CFrame.new(lastctrl.l + lastctrl.r, (lastctrl.f + lastctrl.b) * 0.2, 0).p) - workspace.CurrentCamera.CoordinateFrame.p)) * speed
+                    else
+                        bv.velocity = Vector3.new(0, 0, 0)
+                    end
+                    
+                    bg.cframe = workspace.CurrentCamera.CoordinateFrame * CFrame.Angles(-math.rad((ctrl.f + ctrl.b) * 50 * speed / maxspeed), 0, 0)
+                end
+            end)
+        end
     else
         flyBtn.Text = "Fly [OFF]"
         flyBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-        if flyLoop then flyLoop:Disconnect() flyLoop = nil end
-        local char = player.Character
-        if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.PlatformStand = false
-        end
+        
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Running,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.StrafingNoPhysics,true)
+        speaker.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming,true)
+        speaker.Character.Humanoid:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
+        
+        if bg then bg:Destroy() bg = nil end
+        if bv then bv:Destroy() bv = nil end
+        
+        speaker.Character.Humanoid.PlatformStand = false
+        speaker.Character.Animate.Disabled = false
+        tpwalking = false
     end
 end
 flyBtn.MouseButton1Click:Connect(toggleFly)
 
-createSlider("Fly Speed", playerContainer, yOffset, 1, 50, flySpeed, function(val)
+createSlider("Fly Speed", playerContainer, yOffset, 1, 10, flySpeed, function(val)
     flySpeed = val
+    if flyEnabled then
+        tpwalking = false
+        task.wait(0.1)
+        tpwalking = true
+        for i = 1, flySpeed do
+            task.spawn(function()
+                local hb = runService.Heartbeat	
+                local chr = player.Character
+                local hum = chr and chr:FindFirstChildWhichIsA("Humanoid")
+                while tpwalking and hb:Wait() and chr and hum and hum.Parent do
+                    if hum.MoveDirection.Magnitude > 0 then
+                        chr:TranslateBy(hum.MoveDirection * 0.2)
+                    end
+                end
+            end)
+        end
+    end
 end)
 yOffset = yOffset + 50
 
--- ==================== СКРЫТНЫЙ INVISIBLE (Ziaa метод со скрытием предметов) ====================
+-- Invisible
 local function setCharacterTransparency(character, transparency)
     if not character then return end
     for _, descendant in ipairs(character:GetDescendants()) do
@@ -446,14 +540,12 @@ local function applyInvisibility(character, enabled)
         task.wait()
         
         seat.CFrame = savedPosition
-        setCharacterTransparency(character, 1) -- Полная незаметность (прозрачность 1)
+        setCharacterTransparency(character, 0)
         invisChair = seat
-        
-        -- Динамическая защита: прячем подобранное оружие / предметы во время невидимости
         invisConnection = character.ChildAdded:Connect(function(child)
             task.wait()
             if child:IsA("Tool") or child:IsA("BasePart") then
-                setCharacterTransparency(child, 1)
+                setCharacterTransparency(child, 0)
             end
         end)
     else
@@ -480,54 +572,6 @@ local function toggleInvisible()
     end
 end
 invisibleBtn.MouseButton1Click:Connect(toggleInvisible)
-
--- ==================== БЕЗОПАСНЫЙ ANTI KICK (Двойной перехват без логов) ====================
-local antiKickBtn = createToggleButton("Anti Kick", playerContainer, yOffset)
-yOffset = yOffset + 50
-
-local function toggleAntiKick()
-    antiKickEnabled = not antiKickEnabled
-    if antiKickEnabled then
-        antiKickBtn.Text = "Anti Kick [ON]"
-        antiKickBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-        
-        -- Способ 1: Прямой хук на функцию Kick игрока (самый незаметный метод для читов)
-        if hookfunction then
-            hookfunction(player.Kick, function(self, ...) 
-                if antiKickEnabled then return nil end
-                return player.Kick(self, ...)
-            end)
-        end
-        
-        -- Способ 2: Защищенный хук метатаблицы (исправлен синтаксический баг)
-        local gmt = getrawmetatable(game)
-        if gmt and setreadonly then
-            setreadonly(gmt, false)
-            local oldNamecall = gmt.__namecall
-            local oldIndex = gmt.__index
-            
-            gmt.__namecall = newcclosure(function(self, ...)
-                local method = getnamecallmethod()
-                if antiKickEnabled and (method == "Kick" or method == "kick") and self == player then
-                    return nil 
-                end
-                return oldNamecall(self, ...)
-            end)
-            
-            gmt.__index = newcclosure(function(self, key)
-                if antiKickEnabled and tostring(key):lower() == "kick" and self == player then
-                    return newcclosure(function() return nil end)
-                end
-                return oldIndex(self, key)
-            end)
-            setreadonly(gmt, true)
-        end
-    else
-        antiKickBtn.Text = "Anti Kick [OFF]"
-        antiKickBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-    end
-end
-antiKickBtn.MouseButton1Click:Connect(toggleAntiKick)
 
 
 -- ==================== ВКЛАДКА FUN ====================
@@ -563,7 +607,7 @@ local function toggleAntiFling()
     else
         antiFlingBtn.Text = "Anti Fling [OFF]"
         antiFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-        if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end
+        if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end -- Фикс синтаксиса тут
     end
 end
 antiFlingBtn.MouseButton1Click:Connect(toggleAntiFling)
@@ -643,7 +687,7 @@ local function toggleXray()
 end
 xrayBtn.MouseButton1Click:Connect(toggleXray)
 
--- ==================== CAMERA NOCLIP ====================
+-- Camera noclip
 local cameraNoclipBtn = createToggleButton("Camera Noclip", funContainer, yOffsetFun)
 yOffsetFun = yOffsetFun + 50
 
@@ -695,9 +739,8 @@ local function toggleCameraNoclip()
             local cameraCFrame = camera.CFrame
             local cameraFocus = camera.Focus
             local lookVector = cameraCFrame.LookVector
-            local targetPos = cameraFocus.Position - (lookVector * cameraDistance)
             
-            camera.CFrame = CFrame.new(targetPos, cameraFocus.Position)
+            camera.CFrame = CFrame.new(cameraFocus.Position - (lookVector * cameraDistance), cameraFocus.Position)
         end)
     else
         cameraNoclipBtn.Text = "Camera Noclip [OFF]"
@@ -897,6 +940,7 @@ player.CharacterAdded:Connect(function(newCharacter)
     task.wait(0.2)
     local humanoid = newCharacter:WaitForChild("Humanoid", 5)
     if humanoid then
+        humanoid.UseJumpPower = true
         humanoid.WalkSpeed = walkSpeed
         humanoid.JumpPower = jumpPower
     end
@@ -913,6 +957,7 @@ end)
 player:GetPropertyChangedSignal("Character"):Connect(function()
     local char = player.Character
     if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.UseJumpPower = true
         char.Humanoid.WalkSpeed = walkSpeed
         char.Humanoid.JumpPower = jumpPower
     end
@@ -920,8 +965,9 @@ end)
 
 task.wait(1)
 if player.Character and player.Character:FindFirstChild("Humanoid") then
+    player.Character.Humanoid.UseJumpPower = true
     player.Character.Humanoid.WalkSpeed = walkSpeed
     player.Character.Humanoid.JumpPower = jumpPower
 end
 
-print("DaryllHub Xeno Hardened Version Loaded!")
+print("DaryllHub Loaded!")
