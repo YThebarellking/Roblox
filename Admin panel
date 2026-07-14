@@ -16,6 +16,11 @@ local infiniteJumpEnabled = false
 local cameraNoclipEnabled = false
 local invisibleEnabled = false
 
+-- Состояния Teleport
+local teleportPoint = nil
+local autoTeleportEnabled = false
+local autoTeleportDelay = 1.0
+
 -- Параметры
 local flySpeed = 1
 local walkSpeed = 16
@@ -47,11 +52,16 @@ screenGui.Parent = coreGui:FindFirstChild("RobloxGui") or coreGui
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 450, 0, 300)
 mainFrame.Position = UDim2.new(0.5, -225, 0.5, -150)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
 mainFrame.Draggable = false 
 mainFrame.Parent = screenGui
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(45, 45, 48)
+mainStroke.Thickness = 1
+mainStroke.Parent = mainFrame
 
 runService.RenderStepped:Connect(function()
     mainFrame.Position = UDim2.new(0.5, -225, 0.5, -150)
@@ -63,11 +73,11 @@ uiCorner.Parent = mainFrame
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 40)
-title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+title.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
 title.Text = "DaryllHub"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.TextSize = 18
-title.Font = Enum.Font.SourceSansBold
+title.TextSize = 16
+title.Font = Enum.Font.GothamBold
 title.BorderSizePixel = 0
 title.Parent = mainFrame
 
@@ -76,34 +86,41 @@ titleCorner.CornerRadius = UDim.new(0, 8)
 titleCorner.Parent = title
 
 local toggleGuiBtn = Instance.new("TextButton")
-toggleGuiBtn.Size = UDim2.new(0, 50, 0, 50)
+toggleGuiBtn.Size = UDim2.new(0, 55, 0, 55)
 toggleGuiBtn.Position = UDim2.new(0.02, 0, 0.1, 0)
-toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+toggleGuiBtn.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
 toggleGuiBtn.Text = "Daryll"
 toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleGuiBtn.TextSize = 14
+toggleGuiBtn.TextSize = 13
+toggleGuiBtn.Font = Enum.Font.GothamBold
 toggleGuiBtn.Parent = screenGui
-Instance.new("UICorner", toggleGuiBtn).CornerRadius = UDim.new(0, 25)
+Instance.new("UICorner", toggleGuiBtn).CornerRadius = UDim.new(0, 28)
+
+local btnStroke = Instance.new("UIStroke")
+btnStroke.Color = Color3.fromRGB(45, 45, 48)
+btnStroke.Thickness = 1.5
+btnStroke.Parent = toggleGuiBtn
 
 toggleGuiBtn.MouseButton1Click:Connect(function()
     mainFrame.Visible = not mainFrame.Visible
 end)
 
 local tabPanel = Instance.new("Frame")
-tabPanel.Size = UDim2.new(0, 80, 1, -40)
+tabPanel.Size = UDim2.new(0, 85, 1, -40)
 tabPanel.Position = UDim2.new(0, 0, 0, 40)
-tabPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+tabPanel.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
 tabPanel.BorderSizePixel = 0
 tabPanel.Parent = mainFrame
 
 local function createTabContainer(name)
     local container = Instance.new("ScrollingFrame")
     container.Name = name .. "Container"
-    container.Size = UDim2.new(1, -70, 1, -40)
-    container.Position = UDim2.new(0, 80, 0, 40)
+    container.Size = UDim2.new(1, -95, 1, -50)
+    container.Position = UDim2.new(0, 90, 0, 45)
     container.BackgroundTransparency = 1
     container.CanvasSize = UDim2.new(0, 0, 0, 650) 
-    container.ScrollBarThickness = 4
+    container.ScrollBarThickness = 2
+    container.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 65)
     container.Parent = mainFrame
     container.Visible = false
     return container
@@ -112,20 +129,21 @@ end
 local playerContainer = createTabContainer("Player")
 local funContainer = createTabContainer("Fun")
 local trollContainer = createTabContainer("Troll")
+local teleportContainer = createTabContainer("Teleport")
 
-local tabNames = {"Player", "Fun", "Troll"}
-local containers = {playerContainer, funContainer, trollContainer}
+local tabNames = {"Player", "Fun", "Troll", "Teleport"}
+local containers = {playerContainer, funContainer, trollContainer, teleportContainer}
 local tabButtons = {}
 
 for i, name in ipairs(tabNames) do
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 45)
     btn.Position = UDim2.new(0, 0, 0, (i-1)*45)
-    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
     btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    btn.TextSize = 14
-    btn.Font = Enum.Font.SourceSansBold
+    btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamBold
     btn.BorderSizePixel = 0
     btn.Parent = tabPanel
     local container = containers[i]
@@ -133,80 +151,102 @@ for i, name in ipairs(tabNames) do
         for _, c in ipairs(containers) do c.Visible = false end
         container.Visible = true
         for _, b in ipairs(tabButtons) do
-            b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-            b.TextColor3 = Color3.fromRGB(200, 200, 200)
+            b.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
+            b.TextColor3 = Color3.fromRGB(150, 150, 150)
         end
-        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        btn.BackgroundColor3 = Color3.fromRGB(32, 32, 35)
         btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     end)
     tabButtons[name] = btn
 end
 
 playerContainer.Visible = true
-tabButtons["Player"].BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+tabButtons["Player"].BackgroundColor3 = Color3.fromRGB(32, 32, 35)
 tabButtons["Player"].TextColor3 = Color3.fromRGB(255, 255, 255)
 
 local function createToggleButton(text, container, yPos)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.9, 0, 0, 40)
-    btn.Position = UDim2.new(0.05, 0, 0, yPos)
-    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.Size = UDim2.new(0.92, 0, 0, 36)
+    btn.Position = UDim2.new(0.04, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
     btn.Text = text .. " [OFF]"
-    btn.TextColor3 = Color3.fromRGB(200, 50, 50)
-    btn.TextSize = 15
-    btn.Font = Enum.Font.SourceSansBold
+    btn.TextColor3 = Color3.fromRGB(239, 68, 68)
+    btn.TextSize = 13
+    btn.Font = Enum.Font.GothamBold
     btn.Parent = container
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Color = Color3.fromRGB(45, 45, 48)
+    btnStroke.Thickness = 1
+    btnStroke.Parent = btn
+    
     return btn
 end
 
-local function createSlider(text, container, yPos, minVal, maxVal, defaultValue, onChanged)
+local function createSlider(text, container, yPos, minVal, maxVal, defaultValue, step, onChanged)
+    if type(step) == "function" then
+        onChanged = step
+        step = 1
+    end
+    step = step or 1
+
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0.9, 0, 0, 40)
-    frame.Position = UDim2.new(0.05, 0, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    frame.Size = UDim2.new(0.92, 0, 0, 38)
+    frame.Position = UDim2.new(0.04, 0, 0, yPos)
+    frame.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
     frame.Parent = container
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
 
+    local frameStroke = Instance.new("UIStroke")
+    frameStroke.Color = Color3.fromRGB(45, 45, 48)
+    frameStroke.Thickness = 1
+    frameStroke.Parent = frame
+
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.45, 0, 1, 0)
+    label.Size = UDim2.new(0.5, 0, 1, 0)
+    label.Position = UDim2.new(0.03, 0, 0, 0)
     label.BackgroundTransparency = 1
     label.Text = text .. ": " .. tostring(defaultValue)
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.TextSize = 14
-    label.Font = Enum.Font.SourceSans
+    label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.GothamMedium
     label.Parent = frame
 
     local btnPlus = Instance.new("TextButton")
-    btnPlus.Size = UDim2.new(0.2, 0, 0.8, 0)
-    btnPlus.Position = UDim2.new(0.55, 0, 0.1, 0)
-    btnPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btnPlus.Size = UDim2.new(0.18, 0, 0.7, 0)
+    btnPlus.Position = UDim2.new(0.58, 0, 0.15, 0)
+    btnPlus.BackgroundColor3 = Color3.fromRGB(40, 40, 44)
     btnPlus.Text = "+"
     btnPlus.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btnPlus.TextSize = 16
+    btnPlus.TextSize = 14
+    btnPlus.Font = Enum.Font.GothamBold
     btnPlus.Parent = frame
     Instance.new("UICorner", btnPlus).CornerRadius = UDim.new(0, 4)
 
     local btnMinus = Instance.new("TextButton")
-    btnMinus.Size = UDim2.new(0.2, 0, 0.8, 0)
-    btnMinus.Position = UDim2.new(0.77, 0, 0.1, 0)
-    btnMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btnMinus.Size = UDim2.new(0.18, 0, 0.7, 0)
+    btnMinus.Position = UDim2.new(0.78, 0, 0.15, 0)
+    btnMinus.BackgroundColor3 = Color3.fromRGB(40, 40, 44)
     btnMinus.Text = "-"
     btnMinus.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btnMinus.TextSize = 16
+    btnMinus.TextSize = 14
+    btnMinus.Font = Enum.Font.GothamBold
     btnMinus.Parent = frame
     Instance.new("UICorner", btnMinus).CornerRadius = UDim.new(0, 4)
 
     local currentValue = defaultValue
     local function updateValue(newVal)
         newVal = math.clamp(newVal, minVal, maxVal)
+        newVal = math.round(newVal * 10) / 10
         currentValue = newVal
         label.Text = text .. ": " .. tostring(currentValue)
         onChanged(currentValue)
     end
 
-    btnPlus.MouseButton1Click:Connect(function() updateValue(currentValue + 1) end)
-    btnMinus.MouseButton1Click:Connect(function() updateValue(currentValue - 1) end)
+    btnPlus.MouseButton1Click:Connect(function() updateValue(currentValue + step) end)
+    btnMinus.MouseButton1Click:Connect(function() updateValue(currentValue - step) end)
 
     updateValue(defaultValue)
     return frame
@@ -222,21 +262,21 @@ createSlider("Walk Speed", playerContainer, yOffset, 16, 100, walkSpeed, functio
         char.Humanoid.WalkSpeed = walkSpeed
     end
 end)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 
 createSlider("Jump Power", playerContainer, yOffset, 50, 200, jumpPower, function(val)
     jumpPower = val
     local char = player.Character
     if char and char:FindFirstChild("Humanoid") then
-        char.Humanoid.UseJumpPower = true -- Фикс Jump Power
+        char.Humanoid.UseJumpPower = true 
         char.Humanoid.JumpPower = jumpPower
     end
 end)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 
 -- Infinite jump
 local infiniteJumpBtn = createToggleButton("Infinite Jump", playerContainer, yOffset)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 local function toggleInfiniteJump()
     infiniteJumpEnabled = not infiniteJumpEnabled
     if infiniteJumpEnabled then
@@ -268,7 +308,7 @@ infiniteJumpBtn.MouseButton1Click:Connect(toggleInfiniteJump)
 
 -- Noclip
 local noclipBtn = createToggleButton("Noclip", playerContainer, yOffset)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 local function toggleNoclip()
     noclipEnabled = not noclipEnabled
     if noclipEnabled then
@@ -294,10 +334,9 @@ local function toggleNoclip()
 end
 noclipBtn.MouseButton1Click:Connect(toggleNoclip)
 
-
 -- God mode
 local godBtn = createToggleButton("God Mode (Not all games)", playerContainer, yOffset)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 
 local function setupGodMode(character)
     if not character or not godModeEnabled then return end
@@ -351,7 +390,7 @@ godBtn.MouseButton1Click:Connect(toggleGodMode)
 
 -- Fly 
 local flyBtn = createToggleButton("Fly", playerContainer, yOffset)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 
 local tpwalking = false
 local bg, bv
@@ -388,7 +427,7 @@ local function toggleFly()
                 local hum = chr and chr:FindFirstChildWhichIsA("Humanoid")
                 while tpwalking and hb:Wait() and chr and hum and hum.Parent do
                     if hum.MoveDirection.Magnitude > 0 then
-                        chr:TranslateBy(hum.MoveDirection * 0.2) -- Фикс: Плавный медленный полет
+                        chr:TranslateBy(hum.MoveDirection * 0.2)
                     end
                 end
             end)
@@ -422,7 +461,7 @@ local function toggleFly()
                 while flyEnabled or speaker.Character.Humanoid.Health == 0 do
                     runService.RenderStepped:Wait()
                     
-                    local maxspeed = flySpeed * 15 -- Фикс: Зависимость скорости от ползунка
+                    local maxspeed = flySpeed * 15
                     
                     if ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0 then
                         speed = speed + 0.5 + (speed / maxspeed)
@@ -500,7 +539,7 @@ createSlider("Fly Speed", playerContainer, yOffset, 1, 10, flySpeed, function(va
         end
     end
 end)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 
 -- Invisible
 local function setCharacterTransparency(character, transparency)
@@ -556,7 +595,7 @@ local function applyInvisibility(character, enabled)
 end
 
 local invisibleBtn = createToggleButton("Invisible", playerContainer, yOffset)
-yOffset = yOffset + 50
+yOffset = yOffset + 46
 
 local function toggleInvisible()
     invisibleEnabled = not invisibleEnabled
@@ -573,13 +612,12 @@ local function toggleInvisible()
 end
 invisibleBtn.MouseButton1Click:Connect(toggleInvisible)
 
-
 -- ==================== ВКЛАДКА FUN ====================
 local yOffsetFun = 10
 
 -- Anti Fling
 local antiFlingBtn = createToggleButton("Anti Fling", funContainer, yOffsetFun)
-yOffsetFun = yOffsetFun + 50
+yOffsetFun = yOffsetFun + 46
 local function toggleAntiFling()
     antiFlingEnabled = not antiFlingEnabled
     if antiFlingEnabled then
@@ -607,14 +645,14 @@ local function toggleAntiFling()
     else
         antiFlingBtn.Text = "Anti Fling [OFF]"
         antiFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-        if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end -- Фикс синтаксиса тут
+        if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end
     end
 end
 antiFlingBtn.MouseButton1Click:Connect(toggleAntiFling)
 
 -- X-Ray
 local xrayBtn = createToggleButton("X-Ray", funContainer, yOffsetFun)
-yOffsetFun = yOffsetFun + 50
+yOffsetFun = yOffsetFun + 46
 
 local function applyXray(p)
     if p == player or not p.Character then return end
@@ -645,8 +683,8 @@ local function applyXray(p)
         textLabel.BackgroundTransparency = 1
         textLabel.Text = p.Name
         textLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
-        textLabel.TextSize = 14
-        textLabel.Font = Enum.Font.SourceSansBold
+        textLabel.TextSize = 13
+        textLabel.Font = Enum.Font.GothamBold
         textLabel.TextStrokeTransparency = 0
         textLabel.Parent = bGui
     end
@@ -689,7 +727,7 @@ xrayBtn.MouseButton1Click:Connect(toggleXray)
 
 -- Camera noclip
 local cameraNoclipBtn = createToggleButton("Camera Noclip", funContainer, yOffsetFun)
-yOffsetFun = yOffsetFun + 50
+yOffsetFun = yOffsetFun + 46
 
 local camDistSlider = createSlider("Cam Distance", funContainer, yOffsetFun, 2, 30, cameraDistance, function(val)
     cameraDistance = val
@@ -698,7 +736,7 @@ local camDistSlider = createSlider("Cam Distance", funContainer, yOffsetFun, 2, 
         player.CameraMaxZoomDistance = cameraDistance
     end
 end)
-yOffsetFun = yOffsetFun + 50
+yOffsetFun = yOffsetFun + 46
 
 userInputService.InputChanged:Connect(function(input)
     if not cameraNoclipEnabled then return end
@@ -762,17 +800,23 @@ cameraNoclipBtn.MouseButton1Click:Connect(toggleCameraNoclip)
 local yOffsetTroll = 10
 
 local playerListFrame = Instance.new("Frame")
-playerListFrame.Size = UDim2.new(0.9, 0, 0, 160)
-playerListFrame.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
-playerListFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+playerListFrame.Size = UDim2.new(0.92, 0, 0, 150)
+playerListFrame.Position = UDim2.new(0.04, 0, 0, yOffsetTroll)
+playerListFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
 playerListFrame.Parent = trollContainer
 Instance.new("UICorner", playerListFrame).CornerRadius = UDim.new(0, 6)
+
+local listStroke = Instance.new("UIStroke")
+listStroke.Color = Color3.fromRGB(45, 45, 48)
+listStroke.Thickness = 1
+listStroke.Parent = playerListFrame
 
 local playerListScroll = Instance.new("ScrollingFrame")
 playerListScroll.Size = UDim2.new(1, 0, 1, 0)
 playerListScroll.BackgroundTransparency = 1
 playerListScroll.CanvasSize = UDim2.new(0, 0, 0, 100)
-playerListScroll.ScrollBarThickness = 4
+playerListScroll.ScrollBarThickness = 2
+playerListScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 65)
 playerListScroll.Parent = playerListFrame
 
 local playerListLabel = Instance.new("TextLabel")
@@ -780,8 +824,8 @@ playerListLabel.Size = UDim2.new(1, 0, 0, 20)
 playerListLabel.BackgroundTransparency = 1
 playerListLabel.Text = "Select player:"
 playerListLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-playerListLabel.TextSize = 12
-playerListLabel.Font = Enum.Font.SourceSans
+playerListLabel.TextSize = 11
+playerListLabel.Font = Enum.Font.GothamMedium
 playerListLabel.Parent = playerListScroll
 
 local selectedPlayer = nil
@@ -797,21 +841,26 @@ local function updatePlayerList()
     local y = 25
     
     local noneBtn = Instance.new("TextButton")
-    noneBtn.Size = UDim2.new(1, 0, 0, 30)
-    noneBtn.Position = UDim2.new(0, 0, 0, y)
-    noneBtn.BackgroundColor3 = selectedPlayer == nil and Color3.fromRGB(70, 70, 70) or Color3.fromRGB(50, 50, 50)
+    noneBtn.Size = UDim2.new(0.96, 0, 0, 30)
+    noneBtn.Position = UDim2.new(0.02, 0, 0, y)
+    noneBtn.BackgroundColor3 = selectedPlayer == nil and Color3.fromRGB(50, 50, 55) or Color3.fromRGB(32, 32, 35)
     noneBtn.Text = "None (No Target)"
-    noneBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-    noneBtn.TextSize = 14
-    noneBtn.Font = Enum.Font.SourceSansBold
+    noneBtn.TextColor3 = Color3.fromRGB(239, 68, 68)
+    noneBtn.TextSize = 12
+    noneBtn.Font = Enum.Font.GothamBold
     noneBtn.Parent = playerListScroll
     Instance.new("UICorner", noneBtn).CornerRadius = UDim.new(0, 4)
     
+    local noneStroke = Instance.new("UIStroke")
+    noneStroke.Color = Color3.fromRGB(45, 45, 48)
+    noneStroke.Thickness = 1
+    noneStroke.Parent = noneBtn
+    
     noneBtn.MouseButton1Click:Connect(function()
         for _, b in ipairs(playerButtons) do
-            b.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            b.BackgroundColor3 = Color3.fromRGB(32, 32, 35)
         end
-        noneBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+        noneBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
         selectedPlayer = nil
     end)
     table.insert(playerButtons, noneBtn)
@@ -820,20 +869,26 @@ local function updatePlayerList()
     for _, p in ipairs(players:GetPlayers()) do
         if p ~= player then
             local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(1, 0, 0, 30)
-            btn.Position = UDim2.new(0, 0, 0, y)
-            btn.BackgroundColor3 = selectedPlayer == p and Color3.fromRGB(70, 70, 70) or Color3.fromRGB(50, 50, 50)
+            btn.Size = UDim2.new(0.96, 0, 0, 30)
+            btn.Position = UDim2.new(0.02, 0, 0, y)
+            btn.BackgroundColor3 = selectedPlayer == p and Color3.fromRGB(50, 50, 55) or Color3.fromRGB(32, 32, 35)
             btn.Text = p.Name
             btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            btn.TextSize = 14
-            btn.Font = Enum.Font.SourceSans
+            btn.TextSize = 12
+            btn.Font = Enum.Font.GothamMedium
             btn.Parent = playerListScroll
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+            
+            local btnStr = Instance.new("UIStroke")
+            btnStr.Color = Color3.fromRGB(45, 45, 48)
+            btnStr.Thickness = 1
+            btnStr.Parent = btn
+
             btn.MouseButton1Click:Connect(function()
                 for _, b in ipairs(playerButtons) do
-                    b.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+                    b.BackgroundColor3 = Color3.fromRGB(32, 32, 35)
                 end
-                btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+                btn.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
                 selectedPlayer = p
             end)
             table.insert(playerButtons, btn)
@@ -850,7 +905,7 @@ players.PlayerRemoving:Connect(function(p)
     updatePlayerList()
 end)
 
-yOffsetTroll = yOffsetTroll + 170
+yOffsetTroll = yOffsetTroll + 160
 
 local function applyFlingVelocity(hrp)
     local multiplier = 50000
@@ -865,15 +920,20 @@ end
 
 -- Touch Fling
 local touchFlingBtn = Instance.new("TextButton")
-touchFlingBtn.Size = UDim2.new(0.9, 0, 0, 45)
-touchFlingBtn.Position = UDim2.new(0.05, 0, 0, yOffsetTroll)
-touchFlingBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+touchFlingBtn.Size = UDim2.new(0.92, 0, 0, 38)
+touchFlingBtn.Position = UDim2.new(0.04, 0, 0, yOffsetTroll)
+touchFlingBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
 touchFlingBtn.Text = "Touch Fling [OFF]"
 touchFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-touchFlingBtn.TextSize = 18
-touchFlingBtn.Font = Enum.Font.SourceSansBold
+touchFlingBtn.TextSize = 13
+touchFlingBtn.Font = Enum.Font.GothamBold
 touchFlingBtn.Parent = trollContainer
 Instance.new("UICorner", touchFlingBtn).CornerRadius = UDim.new(0, 6)
+
+local tfStroke = Instance.new("UIStroke")
+tfStroke.Color = Color3.fromRGB(45, 45, 48)
+tfStroke.Thickness = 1
+tfStroke.Parent = touchFlingBtn
 
 local touchFlingActive = false
 local touchFlingConnection = nil
@@ -933,7 +993,114 @@ touchFlingBtn.MouseButton1Click:Connect(function()
     end
 end)
 
-yOffsetTroll = yOffsetTroll + 55
+yOffsetTroll = yOffsetTroll + 46
+
+-- ==================== ВКЛАДКА TELEPORT ====================
+local yOffsetTeleport = 10
+
+-- Set Teleport Location
+local setTpBtn = Instance.new("TextButton")
+setTpBtn.Size = UDim2.new(0.92, 0, 0, 38)
+setTpBtn.Position = UDim2.new(0.04, 0, 0, yOffsetTeleport)
+setTpBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+setTpBtn.Text = "Set Teleport"
+setTpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+setTpBtn.TextSize = 13
+setTpBtn.Font = Enum.Font.GothamBold
+setTpBtn.Parent = teleportContainer
+Instance.new("UICorner", setTpBtn).CornerRadius = UDim.new(0, 6)
+
+local setTpStroke = Instance.new("UIStroke")
+setTpStroke.Color = Color3.fromRGB(45, 45, 48)
+setTpStroke.Thickness = 1
+setTpStroke.Parent = setTpBtn
+
+setTpBtn.MouseButton1Click:Connect(function()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        teleportPoint = hrp.CFrame
+        setTpBtn.Text = "Location Saved!"
+        setTpBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        task.delay(1.5, function()
+            setTpBtn.Text = "Set Teleport"
+            setTpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end)
+    end
+end)
+
+yOffsetTeleport = yOffsetTeleport + 46
+
+-- Teleport to Location
+local tpToBtn = Instance.new("TextButton")
+tpToBtn.Size = UDim2.new(0.92, 0, 0, 38)
+tpToBtn.Position = UDim2.new(0.04, 0, 0, yOffsetTeleport)
+tpToBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+tpToBtn.Text = "Teleport to Location"
+tpToBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpToBtn.TextSize = 13
+tpToBtn.Font = Enum.Font.GothamBold
+tpToBtn.Parent = teleportContainer
+Instance.new("UICorner", tpToBtn).CornerRadius = UDim.new(0, 6)
+
+local tpToStroke = Instance.new("UIStroke")
+tpToStroke.Color = Color3.fromRGB(45, 45, 48)
+tpToStroke.Thickness = 1
+tpToStroke.Parent = tpToBtn
+
+tpToBtn.MouseButton1Click:Connect(function()
+    if teleportPoint then
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = teleportPoint
+        end
+    else
+        tpToBtn.Text = "No Location Saved!"
+        tpToBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        task.delay(1.5, function()
+            tpToBtn.Text = "Teleport to Location"
+            tpToBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end)
+    end
+end)
+
+yOffsetTeleport = yOffsetTeleport + 46
+
+-- Auto Teleport
+local autoTpName = "Auto Teleport"
+local autoTeleportBtn = createToggleButton(autoTpName, teleportContainer, yOffsetTeleport)
+yOffsetTeleport = yOffsetTeleport + 46
+
+autoTeleportBtn.MouseButton1Click:Connect(function()
+    autoTeleportEnabled = not autoTeleportEnabled
+    if autoTeleportEnabled then
+        autoTeleportBtn.Text = autoTpName .. " [ON]"
+        autoTeleportBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        
+        task.spawn(function()
+            while autoTeleportEnabled do
+                if teleportPoint then
+                    local char = player.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        hrp.CFrame = teleportPoint
+                    end
+                end
+                task.wait(autoTeleportDelay)
+            end
+        end)
+    else
+        autoTeleportBtn.Text = autoTpName .. " [OFF]"
+        autoTeleportBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+    end
+end)
+
+-- Auto Teleport Delay Slider
+createSlider("Auto TP Delay", teleportContainer, yOffsetTeleport, 0.1, 5.0, autoTeleportDelay, 0.1, function(val)
+    autoTeleportDelay = val
+end)
+yOffsetTeleport = yOffsetTeleport + 46
 
 -- ==================== ОБЩИЕ СОБЫТИЯ ====================
 player.CharacterAdded:Connect(function(newCharacter)
