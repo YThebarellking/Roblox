@@ -427,7 +427,7 @@ local function toggleFly()
                 local hum = chr and chr:FindFirstChildWhichIsA("Humanoid")
                 while tpwalking and hb:Wait() and chr and hum and hum.Parent do
                     if hum.MoveDirection.Magnitude > 0 then
-                        chr:TranslateBy(hum.MoveDirection * 0.2)
+                        chr:TranslateBy(hum.MoveDirection * 0.5)
                     end
                 end
             end)
