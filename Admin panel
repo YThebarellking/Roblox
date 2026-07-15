@@ -461,7 +461,7 @@ local function toggleFly()
                 while flyEnabled or speaker.Character.Humanoid.Health == 0 do
                     runService.RenderStepped:Wait()
                     
-                    local maxspeed = flySpeed * 15
+                    local maxspeed = flySpeed * 30
                     
                     if ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0 then
                         speed = speed + 0.5 + (speed / maxspeed)
