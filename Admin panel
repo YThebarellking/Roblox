@@ -594,7 +594,7 @@ local function applyInvisibility(character, enabled)
         task.wait()
         
         seat.CFrame = savedPosition
-        setCharacterTransparency(character, 0)
+        setCharacterTransparency(character, 1)
         invisChair = seat
         invisConnection = character.ChildAdded:Connect(function(child)
             task.wait()
