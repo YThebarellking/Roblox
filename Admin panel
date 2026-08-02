@@ -556,65 +556,95 @@ createSlider("Fly Speed", playerContainer, yOffset, 1, 10, flySpeed, function(va
 end)
 yOffset = yOffset + 46
 
--- Invisible
-local function setCharacterTransparency(character, transparency)
-    if not character then return end
-    for _, descendant in ipairs(character:GetDescendants()) do
-        if descendant:IsA("BasePart") or descendant:IsA("Decal") then
-            descendant.Transparency = transparency
+-- Хранение локальных ссылок
+local invisChair = nil
+local invisConnection = nil
+
+-- Вспомогательная функция смены прозрачности
+local function setCharacterTransparency(object, transparency)
+    if not object then return end
+    
+    -- Очищаем прозрачность для самой части или всех ее потомков
+    local function applyToPart(item)
+        if item:IsA("BasePart") or item:IsA("Decal") or item:IsA("Texture") then
+            item.Transparency = transparency
         end
+    end
+
+    applyToPart(object)
+    for _, descendant in ipairs(object:GetDescendants()) do
+        applyToPart(descendant)
+    end
+end
+
+-- Сброс состояния и очистка ресурсов
+local function cleanupInvisibility()
+    if invisConnection then
+        invisConnection:Disconnect()
+        invisConnection = nil
+    end
+    if invisChair then
+        invisChair:Destroy()
+        invisChair = nil
     end
 end
 
 local function applyInvisibility(character, enabled)
     if not character then return end
+    cleanupInvisibility()
+
     if enabled then
-        if invisChair then invisChair:Destroy() end
-        if invisConnection then invisConnection:Disconnect() end
-        
         local hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        local savedPosition = hrp.CFrame
+        local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
         
-        character:MoveTo(INVISIBILITY_POSITION)
-        task.wait(0.15)
+        if not hrp or not torso then return end
         
+        local savedCFrame = hrp.CFrame
+
+        -- Телепортация без искусственной паузы task.wait(0.15)
+        hrp.CFrame = INVISIBILITY_POSITION
+        
+        -- Создание и настройка сиденья
         local seat = Instance.new("Seat")
-        seat.Name = "invischair"
+        seat.Name = "InvisChair"
         seat.Anchored = false
         seat.CanCollide = false
         seat.Transparency = 1
-        seat.Position = INVISIBILITY_POSITION
+        seat.CFrame = INVISIBILITY_POSITION
         seat.Parent = workspace
-        
+
         local weld = Instance.new("Weld")
         weld.Part0 = seat
-        weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+        weld.Part1 = torso
         weld.Parent = seat
-        task.wait()
-        
-        seat.CFrame = savedPosition
-        setCharacterTransparency(character, 0)
+
+        -- Возвращаем сиденье (и персонажа) в исходную точку
+        seat.CFrame = savedCFrame
         invisChair = seat
+
+        -- Переключаем прозрачность (1 = полностью невидимый)
+        setCharacterTransparency(character, 1)
+
+        -- Слушатель добавления новых предметов (например, когда игрок берет Tool)
         invisConnection = character.ChildAdded:Connect(function(child)
-            task.wait()
-            if child:IsA("Tool") or child:IsA("BasePart") then
-                setCharacterTransparency(child, 0)
-            end
+            task.defer(function() -- defer безопаснее чем wait()
+                setCharacterTransparency(child, 1)
+            end)
         end)
     else
-        if invisChair then invisChair:Destroy() invisChair = nil end
-        if invisConnection then invisConnection:Disconnect() invisConnection = nil end
+        -- Возвращаем видимость (0 = полностью видимый)
         setCharacterTransparency(character, 0)
     end
 end
 
+-- Создание кнопки
 local invisibleBtn = createToggleButton("Invisible", playerContainer, yOffset)
 yOffset = yOffset + 46
 
 local function toggleInvisible()
     invisibleEnabled = not invisibleEnabled
     local char = player.Character
+
     if invisibleEnabled then
         invisibleBtn.Text = "Invisible [ON]"
         invisibleBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
@@ -625,6 +655,17 @@ local function toggleInvisible()
         if char then applyInvisibility(char, false) end
     end
 end
+
+-- Автоматическая очистка при респавне/смерти
+player.CharacterAdded:Connect(function(newChar)
+    cleanupInvisibility()
+    if invisibleEnabled then
+        -- Небольшая пауза для полной загрузки модели персонажа при респавне
+        newChar:WaitForChild("HumanoidRootPart", 5)
+        applyInvisibility(newChar, true)
+    end
+end)
+
 invisibleBtn.MouseButton1Click:Connect(toggleInvisible)
 
 -- ==================== ВКЛАДКА FUN ====================
