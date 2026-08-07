@@ -1,4 +1,4 @@
--- Xeno GUI (DaryllHub) - Clean & Enhanced Edition
+-- Xeno GUI (DaryllHub) - Fixed & Enhanced Edition
 local players = game:GetService("Players")
 local runService = game:GetService("RunService")
 local userInputService = game:GetService("UserInputService")
@@ -12,13 +12,22 @@ local player = players.LocalPlayer
 local camera = workspace.CurrentCamera
 local mouse = player:GetMouse()
 
--- Переменные настроек UI
-local isPanelDraggable = false
-local isToggleBtnDraggable = false
+-- Script connections and tasks tracking for clean script destruction
+local scriptConnections = {}
+local activeLoops = {}
+
+local function addConnection(conn)
+    if conn then
+        table.insert(scriptConnections, conn)
+    end
+    return conn
+end
+
+-- Settings states
+local dragPanelEnabled = false
+local dragDaryllBtnEnabled = false
 local noLimitsEnabled = false
-local currentThemeColor = Color3.fromRGB(45, 45, 48) -- По умолчанию чёрный/серый
-local themedStrokes = {}
-local themedAccents = {}
+local currentThemeName = "Black"
 
 -- Состояния функций (Player)
 local godModeEnabled = false
@@ -34,18 +43,32 @@ local autoBhopEnabled = false
 local spinbotEnabled = false
 
 -- Состояния Visual
+local noFogEnabled = false
+local timeOfDayVal = 12
+local lightEnabled = false
+local lightRangeVal = 5
+local lightBrightnessVal = 3
 local tracersEnabled = false
+local fullbrightEnabled = false
 local fovVal = 70
+
+-- Сохранение стандартных настроек тумана и эффектов
+local origFogStart = lighting.FogStart
+local origFogEnd = lighting.FogEnd
+local savedEffects = {}
+local origAmbient = lighting.Ambient
+local origOutdoorAmbient = lighting.OutdoorAmbient
 
 -- Состояния Teleport
 local teleportPoint = nil
+local autoTeleportEnabled = false
+local autoTeleportDelay = 1.0
 
 -- Состояния Utility & Troll
 local antiAfkEnabled = false
 local spectatingPlayer = nil
 local lookAtTargetEnabled = false
 local selectedPlayer = nil
-local touchFlingActive = false
 
 -- Параметры
 local flySpeed = 1
@@ -54,71 +77,183 @@ local jumpPower = 50
 local cameraDistance = 12
 local minCamDistance = 2
 local maxCamDistance = 50
+local zoomSpeed = 5
 local hipHeightVal = 2
 local spinSpeed = 20
 
 local invisChair = nil
+local invisConnection = nil
 local godLoop = nil
 local noclipLoop = nil
 local antiFlingLoop = nil
 local xrayLoop = nil
 local infiniteJumpConnection = nil
 local cameraNoclipConnection = nil
+local touchFlingStartPos = nil
+local noFogLoop = nil
 local clickTpConnection = nil
 local bhopConnection = nil
 local spinbotLoop = nil
 local tracersLoop = nil
+local fullbrightLoop = nil
 local antiAfkConnection = nil
 local lookAtLoop = nil
 local spectateConnection = nil
-local touchFlingConnection = nil
 
 -- Управление полётом
 local flyKeys = {W = false, A = false, S = false, D = false, Space = false, LeftShift = false}
 local flyInputBegan, flyInputEnded
 
--- Создание UI
+-- Theme Management
+local Themes = {
+    Black = {
+        MainBg = Color3.fromRGB(18, 18, 20),
+        HeaderBg = Color3.fromRGB(24, 24, 26),
+        PanelBg = Color3.fromRGB(24, 24, 26),
+        ButtonBg = Color3.fromRGB(28, 28, 30),
+        ButtonActiveBg = Color3.fromRGB(32, 32, 35),
+        Border = Color3.fromRGB(45, 45, 48),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextDim = Color3.fromRGB(150, 150, 150)
+    },
+    Blue = {
+        MainBg = Color3.fromRGB(15, 23, 42),
+        HeaderBg = Color3.fromRGB(30, 41, 59),
+        PanelBg = Color3.fromRGB(30, 41, 59),
+        ButtonBg = Color3.fromRGB(30, 58, 138),
+        ButtonActiveBg = Color3.fromRGB(29, 78, 216),
+        Border = Color3.fromRGB(59, 130, 246),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextDim = Color3.fromRGB(148, 163, 184)
+    },
+    Purple = {
+        MainBg = Color3.fromRGB(24, 15, 38),
+        HeaderBg = Color3.fromRGB(40, 24, 61),
+        PanelBg = Color3.fromRGB(40, 24, 61),
+        ButtonBg = Color3.fromRGB(67, 30, 107),
+        ButtonActiveBg = Color3.fromRGB(109, 40, 217),
+        Border = Color3.fromRGB(147, 51, 234),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextDim = Color3.fromRGB(192, 132, 252)
+    },
+    Pink = {
+        MainBg = Color3.fromRGB(35, 15, 28),
+        HeaderBg = Color3.fromRGB(55, 24, 44),
+        PanelBg = Color3.fromRGB(55, 24, 44),
+        ButtonBg = Color3.fromRGB(98, 30, 75),
+        ButtonActiveBg = Color3.fromRGB(157, 23, 117),
+        Border = Color3.fromRGB(219, 39, 119),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextDim = Color3.fromRGB(244, 114, 182)
+    }
+}
+
+local themeableElements = {
+    MainFrame = {},
+    Headers = {},
+    Panels = {},
+    Buttons = {},
+    Borders = {},
+    Texts = {},
+    DimTexts = {}
+}
+
+local function applyTheme(themeName)
+    local theme = Themes[themeName] or Themes.Black
+    currentThemeName = themeName
+    
+    for _, obj in ipairs(themeableElements.MainFrame) do if obj and obj.Parent then obj.BackgroundColor3 = theme.MainBg end end
+    for _, obj in ipairs(themeableElements.Headers) do if obj and obj.Parent then obj.BackgroundColor3 = theme.HeaderBg end end
+    for _, obj in ipairs(themeableElements.Panels) do if obj and obj.Parent then obj.BackgroundColor3 = theme.PanelBg end end
+    for _, obj in ipairs(themeableElements.Buttons) do if obj and obj.Parent then obj.BackgroundColor3 = theme.ButtonBg end end
+    for _, obj in ipairs(themeableElements.Borders) do if obj and obj.Parent then obj.Color = theme.Border end end
+    for _, obj in ipairs(themeableElements.Texts) do if obj and obj.Parent then obj.TextColor3 = theme.Text end end
+    for _, obj in ipairs(themeableElements.DimTexts) do if obj and obj.Parent then obj.TextColor3 = theme.TextDim end end
+end
+
+-- Создание интерфейса
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "DaryllHub_Xeno"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = coreGui:FindFirstChild("RobloxGui") or coreGui
 
+-- Dragging Functionality
+local function makeDraggable(frame, handle, conditionFunc)
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    local conn1 = handle.InputBegan:Connect(function(input)
+        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and (not conditionFunc or conditionFunc()) then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            local connEnded
+            connEnded = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    if connEnded then connEnded:Disconnect() end
+                end
+            end)
+            addConnection(connEnded)
+        end
+    end)
+    addConnection(conn1)
+
+    local conn2 = handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    addConnection(conn2)
+
+    local conn3 = userInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    addConnection(conn3)
+end
+
 -- Главное окно
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 460, 0, 310)
-mainFrame.Position = UDim2.new(0.5, -230, 0.5, -155)
+mainFrame.Size = UDim2.new(0, 450, 0, 300)
+mainFrame.Position = UDim2.new(0.5, -225, 0.5, -150)
 mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
 mainFrame.Parent = screenGui
+table.insert(themeableElements.MainFrame, mainFrame)
 
 local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = currentThemeColor
-mainStroke.Thickness = 1.5
+mainStroke.Color = Color3.fromRGB(45, 45, 48)
+mainStroke.Thickness = 1
 mainStroke.Parent = mainFrame
-table.insert(themedStrokes, mainStroke)
+table.insert(themeableElements.Borders, mainStroke)
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -40, 0, 40)
-title.Position = UDim2.new(0, 0, 0, 0)
+title.Size = UDim2.new(1, 0, 0, 40)
 title.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
-title.Text = "  DaryllHub"
+title.Text = "DaryllHub"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextSize = 16
-title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamBold
 title.BorderSizePixel = 0
 title.Parent = mainFrame
+table.insert(themeableElements.Headers, title)
+table.insert(themeableElements.Texts, title)
+
+makeDraggable(mainFrame, title, function() return dragPanelEnabled end)
 
 local titleCorner = Instance.new("UICorner")
 titleCorner.CornerRadius = UDim.new(0, 8)
 titleCorner.Parent = title
 
--- Кнопка скрыть/показать
 local toggleGuiBtn = Instance.new("TextButton")
 toggleGuiBtn.Size = UDim2.new(0, 55, 0, 55)
 toggleGuiBtn.Position = UDim2.new(0.02, 0, 0.1, 0)
@@ -127,61 +262,347 @@ toggleGuiBtn.Text = "Daryll"
 toggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleGuiBtn.TextSize = 13
 toggleGuiBtn.Font = Enum.Font.GothamBold
-toggleGuiBtn.Active = true
 toggleGuiBtn.Parent = screenGui
 Instance.new("UICorner", toggleGuiBtn).CornerRadius = UDim.new(0, 28)
+table.insert(themeableElements.Headers, toggleGuiBtn)
+table.insert(themeableElements.Texts, toggleGuiBtn)
+
+makeDraggable(toggleGuiBtn, toggleGuiBtn, function() return dragDaryllBtnEnabled end)
 
 local btnStroke = Instance.new("UIStroke")
-btnStroke.Color = currentThemeColor
+btnStroke.Color = Color3.fromRGB(45, 45, 48)
 btnStroke.Thickness = 1.5
 btnStroke.Parent = toggleGuiBtn
-table.insert(themedStrokes, btnStroke)
+table.insert(themeableElements.Borders, btnStroke)
 
-toggleGuiBtn.MouseButton1Click:Connect(function()
+local toggleBtnConn = toggleGuiBtn.MouseButton1Click:Connect(function()
     mainFrame.Visible = not mainFrame.Visible
 end)
+addConnection(toggleBtnConn)
 
--- Вспомогательная функция перетаскивания (Drag)
-local function makeDraggable(guiObject, checkCondition)
-    local dragging, dragInput, dragStart, startPos
-    guiObject.InputBegan:Connect(function(input)
-        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and checkCondition() then
-            dragging = true
-            dragStart = input.Position
-            startPos = guiObject.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
+-- Top-Left Settings Button & Top-Right Exit Button
+local settingsBtn = Instance.new("TextButton")
+settingsBtn.Size = UDim2.new(0, 70, 0, 26)
+settingsBtn.Position = UDim2.new(0, 7, 0, 7)
+settingsBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+settingsBtn.Text = "Settings"
+settingsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+settingsBtn.TextSize = 11
+settingsBtn.Font = Enum.Font.GothamBold
+settingsBtn.Parent = mainFrame
+Instance.new("UICorner", settingsBtn).CornerRadius = UDim.new(0, 4)
+table.insert(themeableElements.Buttons, settingsBtn)
+table.insert(themeableElements.Texts, settingsBtn)
+
+local exitBtn = Instance.new("TextButton")
+exitBtn.Size = UDim2.new(0, 50, 0, 26)
+exitBtn.Position = UDim2.new(1, -57, 0, 7)
+exitBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+exitBtn.Text = "Exit"
+exitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+exitBtn.TextSize = 11
+exitBtn.Font = Enum.Font.GothamBold
+exitBtn.Parent = mainFrame
+Instance.new("UICorner", exitBtn).CornerRadius = UDim.new(0, 4)
+table.insert(themeableElements.Buttons, exitBtn)
+table.insert(themeableElements.Texts, exitBtn)
+
+-- Settings Window
+local settingsFrame = Instance.new("Frame")
+settingsFrame.Size = UDim2.new(0, 300, 0, 230)
+settingsFrame.Position = UDim2.new(0.5, -150, 0.5, -115)
+settingsFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+settingsFrame.BorderSizePixel = 0
+settingsFrame.Active = true
+settingsFrame.Visible = false
+settingsFrame.ZIndex = 10
+settingsFrame.Parent = screenGui
+table.insert(themeableElements.MainFrame, settingsFrame)
+
+local settingsStroke = Instance.new("UIStroke")
+settingsStroke.Color = Color3.fromRGB(45, 45, 48)
+settingsStroke.Thickness = 1
+settingsStroke.Parent = settingsFrame
+table.insert(themeableElements.Borders, settingsStroke)
+
+Instance.new("UICorner", settingsFrame).CornerRadius = UDim.new(0, 8)
+
+local settingsTitle = Instance.new("TextLabel")
+settingsTitle.Size = UDim2.new(1, 0, 0, 35)
+settingsTitle.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
+settingsTitle.Text = "Settings"
+settingsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+settingsTitle.TextSize = 14
+settingsTitle.Font = Enum.Font.GothamBold
+settingsTitle.ZIndex = 10
+settingsTitle.Parent = settingsFrame
+Instance.new("UICorner", settingsTitle).CornerRadius = UDim.new(0, 8)
+table.insert(themeableElements.Headers, settingsTitle)
+table.insert(themeableElements.Texts, settingsTitle)
+
+local closeSettingsBtn = Instance.new("TextButton")
+closeSettingsBtn.Size = UDim2.new(0, 25, 0, 25)
+closeSettingsBtn.Position = UDim2.new(1, -30, 0, 5)
+closeSettingsBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+closeSettingsBtn.Text = "X"
+closeSettingsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeSettingsBtn.TextSize = 11
+closeSettingsBtn.Font = Enum.Font.GothamBold
+closeSettingsBtn.ZIndex = 11
+closeSettingsBtn.Parent = settingsFrame
+Instance.new("UICorner", closeSettingsBtn).CornerRadius = UDim.new(0, 4)
+table.insert(themeableElements.Buttons, closeSettingsBtn)
+
+local closeSetConn = closeSettingsBtn.MouseButton1Click:Connect(function()
+    settingsFrame.Visible = false
+end)
+addConnection(closeSetConn)
+
+local openSetConn = settingsBtn.MouseButton1Click:Connect(function()
+    settingsFrame.Visible = not settingsFrame.Visible
+end)
+addConnection(openSetConn)
+
+local settingsContent = Instance.new("Frame")
+settingsContent.Size = UDim2.new(1, -20, 1, -45)
+settingsContent.Position = UDim2.new(0, 10, 0, 40)
+settingsContent.BackgroundTransparency = 1
+settingsContent.ZIndex = 10
+settingsContent.Parent = settingsFrame
+
+-- Settings Controls Helper
+local function createSettingsToggle(text, yPos, defaultState, onClick)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.Position = UDim2.new(0, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+    btn.Text = text .. (defaultState and " [ON]" or " [OFF]")
+    btn.TextColor3 = defaultState and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(239, 68, 68)
+    btn.TextSize = 11
+    btn.Font = Enum.Font.GothamBold
+    btn.ZIndex = 11
+    btn.Parent = settingsContent
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     
-    guiObject.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(45, 45, 48)
+    stroke.Thickness = 1
+    stroke.Parent = btn
+    table.insert(themeableElements.Borders, stroke)
+    table.insert(themeableElements.Buttons, btn)
+
+    local state = defaultState
+    local conn = btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.Text = text .. (state and " [ON]" or " [OFF]")
+        btn.TextColor3 = state and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(239, 68, 68)
+        onClick(state)
     end)
-    
-    userInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            guiObject.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+    addConnection(conn)
+    return btn
 end
 
-makeDraggable(mainFrame, function() return isPanelDraggable end)
-makeDraggable(toggleGuiBtn, function() return isToggleBtnDraggable end)
+createSettingsToggle("Drag Panel", 0, dragPanelEnabled, function(val)
+    dragPanelEnabled = val
+end)
 
--- Панель вкладок
+createSettingsToggle("Drag Daryll Button", 37, dragDaryllBtnEnabled, function(val)
+    dragDaryllBtnEnabled = val
+end)
+
+createSettingsToggle("No Limits", 74, noLimitsEnabled, function(val)
+    noLimitsEnabled = val
+end)
+
+-- Theme Selector Control
+local themeFrame = Instance.new("Frame")
+themeFrame.Size = UDim2.new(1, 0, 0, 32)
+themeFrame.Position = UDim2.new(0, 0, 0, 111)
+themeFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+themeFrame.ZIndex = 11
+themeFrame.Parent = settingsContent
+Instance.new("UICorner", themeFrame).CornerRadius = UDim.new(0, 6)
+table.insert(themeableElements.Buttons, themeFrame)
+
+local themeStroke = Instance.new("UIStroke")
+themeStroke.Color = Color3.fromRGB(45, 45, 48)
+themeStroke.Thickness = 1
+themeStroke.Parent = themeFrame
+table.insert(themeableElements.Borders, themeStroke)
+
+local themeLabel = Instance.new("TextLabel")
+themeLabel.Size = UDim2.new(0.35, 0, 1, 0)
+themeLabel.Position = UDim2.new(0.03, 0, 0, 0)
+themeLabel.BackgroundTransparency = 1
+themeLabel.Text = "Theme:"
+themeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+themeLabel.TextSize = 11
+themeLabel.Font = Enum.Font.GothamBold
+themeLabel.TextXAlignment = Enum.TextXAlignment.Left
+themeLabel.ZIndex = 11
+themeLabel.Parent = themeFrame
+table.insert(themeableElements.Texts, themeLabel)
+
+local themeList = {"Black", "Blue", "Purple", "Pink"}
+for i, tName in ipairs(themeList) do
+    local tBtn = Instance.new("TextButton")
+    tBtn.Size = UDim2.new(0.15, 0, 0.7, 0)
+    tBtn.Position = UDim2.new(0.35 + (i - 1) * 0.16, 0, 0.15, 0)
+    tBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 44)
+    tBtn.Text = tName
+    tBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tBtn.TextSize = 9
+    tBtn.Font = Enum.Font.GothamBold
+    tBtn.ZIndex = 12
+    tBtn.Parent = themeFrame
+    Instance.new("UICorner", tBtn).CornerRadius = UDim.new(0, 4)
+
+    local conn = tBtn.MouseButton1Click:Connect(function()
+        applyTheme(tName)
+    end)
+    addConnection(conn)
+end
+
+-- Exit Confirmation Dialog
+local exitConfirmFrame = Instance.new("Frame")
+exitConfirmFrame.Size = UDim2.new(0, 260, 0, 130)
+exitConfirmFrame.Position = UDim2.new(0.5, -130, 0.5, -65)
+exitConfirmFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+exitConfirmFrame.BorderSizePixel = 0
+exitConfirmFrame.Active = true
+exitConfirmFrame.Visible = false
+exitConfirmFrame.ZIndex = 20
+exitConfirmFrame.Parent = screenGui
+table.insert(themeableElements.MainFrame, exitConfirmFrame)
+
+local exitStroke = Instance.new("UIStroke")
+exitStroke.Color = Color3.fromRGB(45, 45, 48)
+exitStroke.Thickness = 1
+exitStroke.Parent = exitConfirmFrame
+table.insert(themeableElements.Borders, exitStroke)
+
+Instance.new("UICorner", exitConfirmFrame).CornerRadius = UDim.new(0, 8)
+
+local exitTitle = Instance.new("TextLabel")
+exitTitle.Size = UDim2.new(1, 0, 0, 30)
+exitTitle.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
+exitTitle.Text = "Exit"
+exitTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+exitTitle.TextSize = 13
+exitTitle.Font = Enum.Font.GothamBold
+exitTitle.ZIndex = 20
+exitTitle.Parent = exitConfirmFrame
+Instance.new("UICorner", exitTitle).CornerRadius = UDim.new(0, 8)
+table.insert(themeableElements.Headers, exitTitle)
+table.insert(themeableElements.Texts, exitTitle)
+
+local exitDesc = Instance.new("TextLabel")
+exitDesc.Size = UDim2.new(1, -20, 0, 35)
+exitDesc.Position = UDim2.new(0, 10, 0, 35)
+exitDesc.BackgroundTransparency = 1
+exitDesc.Text = "Disable DaryllHub?"
+exitDesc.TextColor3 = Color3.fromRGB(255, 255, 255)
+exitDesc.TextSize = 12
+exitDesc.Font = Enum.Font.GothamMedium
+exitDesc.ZIndex = 20
+exitDesc.Parent = exitConfirmFrame
+table.insert(themeableElements.Texts, exitDesc)
+
+local exitYesBtn = Instance.new("TextButton")
+exitYesBtn.Size = UDim2.new(0.42, 0, 0, 32)
+exitYesBtn.Position = UDim2.new(0.06, 0, 0, 80)
+exitYesBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+exitYesBtn.Text = "Yes"
+exitYesBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+exitYesBtn.TextSize = 12
+exitYesBtn.Font = Enum.Font.GothamBold
+exitYesBtn.ZIndex = 20
+exitYesBtn.Parent = exitConfirmFrame
+Instance.new("UICorner", exitYesBtn).CornerRadius = UDim.new(0, 6)
+table.insert(themeableElements.Buttons, exitYesBtn)
+
+local exitNoBtn = Instance.new("TextButton")
+exitNoBtn.Size = UDim2.new(0.42, 0, 0, 32)
+exitNoBtn.Position = UDim2.new(0.52, 0, 0, 80)
+exitNoBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+exitNoBtn.Text = "No"
+exitNoBtn.TextColor3 = Color3.fromRGB(239, 68, 68)
+exitNoBtn.TextSize = 12
+exitNoBtn.Font = Enum.Font.GothamBold
+exitNoBtn.ZIndex = 20
+exitNoBtn.Parent = exitConfirmFrame
+Instance.new("UICorner", exitNoBtn).CornerRadius = UDim.new(0, 6)
+table.insert(themeableElements.Buttons, exitNoBtn)
+
+local exitClickConn = exitBtn.MouseButton1Click:Connect(function()
+    exitConfirmFrame.Visible = true
+end)
+addConnection(exitClickConn)
+
+local exitNoConn = exitNoBtn.MouseButton1Click:Connect(function()
+    exitConfirmFrame.Visible = false
+end)
+addConnection(exitNoConn)
+
+-- Clean script unload function
+local function unloadScript()
+    -- Reset states
+    godModeEnabled = false
+    noclipEnabled = false
+    antiFlingEnabled = false
+    xrayEnabled = false
+    flyEnabled = false
+    infiniteJumpEnabled = false
+    cameraNoclipEnabled = false
+    invisibleEnabled = false
+    clickTpEnabled = false
+    autoBhopEnabled = false
+    spinbotEnabled = false
+    tracersEnabled = false
+    antiAfkEnabled = false
+    lookAtTargetEnabled = false
+    spectatingPlayer = nil
+
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        camera.CameraSubject = player.Character.Humanoid
+        player.Character.Humanoid.WalkSpeed = 16
+        player.Character.Humanoid.JumpPower = 50
+        player.Character.Humanoid.HipHeight = 2
+        player.Character.Humanoid.UseJumpPower = true
+    end
+
+    workspace.Gravity = 196.2
+    camera.FieldOfView = 70
+    player.CameraMinZoomDistance = 0.5
+    player.CameraMaxZoomDistance = 400
+
+    if invisChair then invisChair:Destroy() invisChair = nil end
+
+    for _, conn in ipairs(scriptConnections) do
+        if conn then conn:Disconnect() end
+    end
+    scriptConnections = {}
+
+    for _, loop in ipairs(activeLoops) do
+        if loop then loop:Disconnect() end
+    end
+    activeLoops = {}
+
+    screenGui:Destroy()
+end
+
+local exitYesConn = exitYesBtn.MouseButton1Click:Connect(function()
+    unloadScript()
+end)
+addConnection(exitYesConn)
+
 local tabPanel = Instance.new("Frame")
 tabPanel.Size = UDim2.new(0, 85, 1, -40)
 tabPanel.Position = UDim2.new(0, 0, 0, 40)
 tabPanel.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
 tabPanel.BorderSizePixel = 0
 tabPanel.Parent = mainFrame
+table.insert(themeableElements.Panels, tabPanel)
 
 local function createTabContainer(name)
     local container = Instance.new("ScrollingFrame")
@@ -189,8 +610,8 @@ local function createTabContainer(name)
     container.Size = UDim2.new(1, -95, 1, -50)
     container.Position = UDim2.new(0, 90, 0, 45)
     container.BackgroundTransparency = 1
-    container.CanvasSize = UDim2.new(0, 0, 0, 600)
-    container.ScrollBarThickness = 2
+    container.CanvasSize = UDim2.new(0, 0, 0, 950)
+    container.ScrollBarThickness = 3
     container.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 65)
     container.Parent = mainFrame
     container.Visible = false
@@ -203,16 +624,15 @@ local trollContainer = createTabContainer("Troll")
 local teleportContainer = createTabContainer("Teleport")
 local visualContainer = createTabContainer("Visual")
 local utilityContainer = createTabContainer("Utility")
-local settingsContainer = createTabContainer("Settings")
 
-local tabNames = {"Player", "Fun", "Troll", "Teleport", "Visual", "Utility", "Settings"}
-local containers = {playerContainer, funContainer, trollContainer, teleportContainer, visualContainer, utilityContainer, settingsContainer}
+local tabNames = {"Player", "Fun", "Troll", "Teleport", "Visual", "Utility"}
+local containers = {playerContainer, funContainer, trollContainer, teleportContainer, visualContainer, utilityContainer}
 local tabButtons = {}
 
 for i, name in ipairs(tabNames) do
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 32)
-    btn.Position = UDim2.new(0, 0, 0, (i-1)*34)
+    btn.Size = UDim2.new(1, 0, 0, 35)
+    btn.Position = UDim2.new(0, 0, 0, (i-1)*35)
     btn.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
     btn.Text = name
     btn.TextColor3 = Color3.fromRGB(150, 150, 150)
@@ -220,40 +640,23 @@ for i, name in ipairs(tabNames) do
     btn.Font = Enum.Font.GothamBold
     btn.BorderSizePixel = 0
     btn.Parent = tabPanel
+    table.insert(themeableElements.Panels, btn)
+    table.insert(themeableElements.DimTexts, btn)
+
     local container = containers[i]
-    btn.MouseButton1Click:Connect(function()
+    local btnConn = btn.MouseButton1Click:Connect(function()
         for _, c in ipairs(containers) do c.Visible = false end
         container.Visible = true
         for _, b in ipairs(tabButtons) do
-            b.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
-            b.TextColor3 = Color3.fromRGB(150, 150, 150)
+            b.BackgroundColor3 = Themes[currentThemeName].PanelBg
+            b.TextColor3 = Themes[currentThemeName].TextDim
         end
-        btn.BackgroundColor3 = Color3.fromRGB(32, 32, 35)
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.BackgroundColor3 = Themes[currentThemeName].ButtonActiveBg
+        btn.TextColor3 = Themes[currentThemeName].Text
     end)
+    addConnection(btnConn)
     tabButtons[name] = btn
 end
-
--- Кнопка вызова настроек в углу заголовка
-local settingsTopBtn = Instance.new("TextButton")
-settingsTopBtn.Size = UDim2.new(0, 30, 0, 30)
-settingsTopBtn.Position = UDim2.new(1, -35, 0, 5)
-settingsTopBtn.BackgroundColor3 = Color3.fromRGB(32, 32, 35)
-settingsTopBtn.Text = "⚙️"
-settingsTopBtn.TextSize = 14
-settingsTopBtn.Parent = mainFrame
-Instance.new("UICorner", settingsTopBtn).CornerRadius = UDim.new(0, 6)
-
-settingsTopBtn.MouseButton1Click:Connect(function()
-    for _, c in ipairs(containers) do c.Visible = false end
-    settingsContainer.Visible = true
-    for _, b in ipairs(tabButtons) do
-        b.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
-        b.TextColor3 = Color3.fromRGB(150, 150, 150)
-    end
-    tabButtons["Settings"].BackgroundColor3 = Color3.fromRGB(32, 32, 35)
-    tabButtons["Settings"].TextColor3 = Color3.fromRGB(255, 255, 255)
-end)
 
 playerContainer.Visible = true
 tabButtons["Player"].BackgroundColor3 = Color3.fromRGB(32, 32, 35)
@@ -261,21 +664,22 @@ tabButtons["Player"].TextColor3 = Color3.fromRGB(255, 255, 255)
 
 local function createToggleButton(text, container, yPos)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.92, 0, 0, 34)
+    btn.Size = UDim2.new(0.92, 0, 0, 36)
     btn.Position = UDim2.new(0.04, 0, 0, yPos)
     btn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
     btn.Text = text .. " [OFF]"
     btn.TextColor3 = Color3.fromRGB(239, 68, 68)
-    btn.TextSize = 11
+    btn.TextSize = 12
     btn.Font = Enum.Font.GothamBold
     btn.Parent = container
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    table.insert(themeableElements.Buttons, btn)
     
-    local bStroke = Instance.new("UIStroke")
-    bStroke.Color = currentThemeColor
-    bStroke.Thickness = 1
-    bStroke.Parent = btn
-    table.insert(themedStrokes, bStroke)
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Color = Color3.fromRGB(45, 45, 48)
+    btnStroke.Thickness = 1
+    btnStroke.Parent = btn
+    table.insert(themeableElements.Borders, btnStroke)
     
     return btn
 end
@@ -288,17 +692,18 @@ local function createSlider(text, container, yPos, minVal, maxVal, defaultValue,
     step = step or 1
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0.92, 0, 0, 36)
+    frame.Size = UDim2.new(0.92, 0, 0, 38)
     frame.Position = UDim2.new(0.04, 0, 0, yPos)
     frame.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
     frame.Parent = container
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+    table.insert(themeableElements.Buttons, frame)
 
     local frameStroke = Instance.new("UIStroke")
-    frameStroke.Color = currentThemeColor
+    frameStroke.Color = Color3.fromRGB(45, 45, 48)
     frameStroke.Thickness = 1
     frameStroke.Parent = frame
-    table.insert(themedStrokes, frameStroke)
+    table.insert(themeableElements.Borders, frameStroke)
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.5, 0, 1, 0)
@@ -310,6 +715,7 @@ local function createSlider(text, container, yPos, minVal, maxVal, defaultValue,
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Font = Enum.Font.GothamMedium
     label.Parent = frame
+    table.insert(themeableElements.Texts, label)
 
     local btnPlus = Instance.new("TextButton")
     btnPlus.Size = UDim2.new(0.18, 0, 0.7, 0)
@@ -335,30 +741,35 @@ local function createSlider(text, container, yPos, minVal, maxVal, defaultValue,
 
     local currentValue = defaultValue
     local function updateValue(newVal)
-        local upperLimit = noLimitsEnabled and 999999 or maxVal
-        newVal = math.clamp(newVal, minVal, upperLimit)
+        if not noLimitsEnabled then
+            newVal = math.clamp(newVal, minVal, maxVal)
+        end
         newVal = math.round(newVal * 10) / 10
         currentValue = newVal
         label.Text = text .. ": " .. tostring(currentValue)
         onChanged(currentValue)
     end
 
-    btnPlus.MouseButton1Click:Connect(function() updateValue(currentValue + step) end)
-    btnMinus.MouseButton1Click:Connect(function() updateValue(currentValue - step) end)
+    local plusConn = btnPlus.MouseButton1Click:Connect(function() updateValue(currentValue + step) end)
+    local minusConn = btnMinus.MouseButton1Click:Connect(function() updateValue(currentValue - step) end)
+    addConnection(plusConn)
+    addConnection(minusConn)
 
     updateValue(defaultValue)
     return frame
 end
 
 -- ==================== ВКЛАДКА PLAYER ====================
-local yOffset = 8
+local yOffset = 10
 
 createSlider("Walk Speed", playerContainer, yOffset, 16, 200, walkSpeed, function(val)
     walkSpeed = val
     local char = player.Character
-    if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = walkSpeed end
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = walkSpeed
+    end
 end)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 
 createSlider("Jump Power", playerContainer, yOffset, 50, 300, jumpPower, function(val)
     jumpPower = val
@@ -368,23 +779,26 @@ createSlider("Jump Power", playerContainer, yOffset, 50, 300, jumpPower, functio
         char.Humanoid.JumpPower = jumpPower
     end
 end)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 
 createSlider("Gravity", playerContainer, yOffset, 0, 196.2, 196.2, 5, function(val)
     workspace.Gravity = val
 end)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 
 createSlider("Hip Height", playerContainer, yOffset, 0, 50, hipHeightVal, 1, function(val)
     hipHeightVal = val
     local char = player.Character
-    if char and char:FindFirstChild("Humanoid") then char.Humanoid.HipHeight = hipHeightVal end
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.HipHeight = hipHeightVal
+    end
 end)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 
+-- Infinite jump
 local infiniteJumpBtn = createToggleButton("Infinite Jump", playerContainer, yOffset)
-yOffset = yOffset + 42
-infiniteJumpBtn.MouseButton1Click:Connect(function()
+yOffset = yOffset + 44
+local function toggleInfiniteJump()
     infiniteJumpEnabled = not infiniteJumpEnabled
     if infiniteJumpEnabled then
         infiniteJumpBtn.Text = "Infinite Jump [ON]"
@@ -393,18 +807,25 @@ infiniteJumpBtn.MouseButton1Click:Connect(function()
             if not infiniteJumpEnabled then return end
             local char = player.Character
             local hum = char and char:FindFirstChild("Humanoid")
-            if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
         end)
+        addConnection(infiniteJumpConnection)
     else
         infiniteJumpBtn.Text = "Infinite Jump [OFF]"
         infiniteJumpBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if infiniteJumpConnection then infiniteJumpConnection:Disconnect() infiniteJumpConnection = nil end
     end
-end)
+end
+local ijConn = infiniteJumpBtn.MouseButton1Click:Connect(toggleInfiniteJump)
+addConnection(ijConn)
 
+-- Click TP
 local clickTpBtn = createToggleButton("Click TP (Ctrl+Click)", playerContainer, yOffset)
-yOffset = yOffset + 42
-clickTpBtn.MouseButton1Click:Connect(function()
+yOffset = yOffset + 44
+
+local function toggleClickTp()
     clickTpEnabled = not clickTpEnabled
     if clickTpEnabled then
         clickTpBtn.Text = "Click TP [ON]"
@@ -414,23 +835,30 @@ clickTpBtn.MouseButton1Click:Connect(function()
             local isClick = (input.UserInputType == Enum.UserInputType.MouseButton1 and userInputService:IsKeyDown(Enum.KeyCode.LeftControl)) or (input.UserInputType == Enum.UserInputType.Touch)
             if isClick then
                 local unitRay = camera:ScreenPointToRay(input.Position.X, input.Position.Y)
-                local raycastResult = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000)
+                local rayDistance = noLimitsEnabled and 100000 or 1000
+                local raycastResult = workspace:Raycast(unitRay.Origin, unitRay.Direction * rayDistance)
                 local targetPos = raycastResult and raycastResult.Position or mouse.Hit.Position
                 local char = player.Character
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp and targetPos then hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0)) end
+                if hrp and targetPos then
+                    hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+                end
             end
         end)
+        addConnection(clickTpConnection)
     else
         clickTpBtn.Text = "Click TP [OFF]"
         clickTpBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if clickTpConnection then clickTpConnection:Disconnect() clickTpConnection = nil end
     end
-end)
+end
+local ctpConn = clickTpBtn.MouseButton1Click:Connect(toggleClickTp)
+addConnection(ctpConn)
 
+-- Auto Bhop
 local bhopBtn = createToggleButton("Auto-Bhop", playerContainer, yOffset)
-yOffset = yOffset + 42
-bhopBtn.MouseButton1Click:Connect(function()
+yOffset = yOffset + 44
+local function toggleBhop()
     autoBhopEnabled = not autoBhopEnabled
     if autoBhopEnabled then
         bhopBtn.Text = "Auto-Bhop [ON]"
@@ -442,16 +870,21 @@ bhopBtn.MouseButton1Click:Connect(function()
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
             end
         end)
+        addConnection(bhopConnection)
+        table.insert(activeLoops, bhopConnection)
     else
         bhopBtn.Text = "Auto-Bhop [OFF]"
         bhopBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if bhopConnection then bhopConnection:Disconnect() bhopConnection = nil end
     end
-end)
+end
+local bhopClickConn = bhopBtn.MouseButton1Click:Connect(toggleBhop)
+addConnection(bhopClickConn)
 
+-- Spinbot
 local spinbotBtn = createToggleButton("Spinbot", playerContainer, yOffset)
-yOffset = yOffset + 42
-spinbotBtn.MouseButton1Click:Connect(function()
+yOffset = yOffset + 44
+local function toggleSpinbot()
     spinbotEnabled = not spinbotEnabled
     if spinbotEnabled then
         spinbotBtn.Text = "Spinbot [ON]"
@@ -459,42 +892,54 @@ spinbotBtn.MouseButton1Click:Connect(function()
         spinbotLoop = runService.Heartbeat:Connect(function()
             local char = player.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0) end
+            if hrp then
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0)
+            end
         end)
+        addConnection(spinbotLoop)
+        table.insert(activeLoops, spinbotLoop)
     else
         spinbotBtn.Text = "Spinbot [OFF]"
         spinbotBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if spinbotLoop then spinbotLoop:Disconnect() spinbotLoop = nil end
     end
-end)
+end
+local spinConn = spinbotBtn.MouseButton1Click:Connect(toggleSpinbot)
+addConnection(spinConn)
 
 createSlider("Spin Speed", playerContainer, yOffset, 5, 100, spinSpeed, 5, function(val) spinSpeed = val end)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 
+-- Reset Character Button
 local resetBtn = Instance.new("TextButton")
-resetBtn.Size = UDim2.new(0.92, 0, 0, 34)
+resetBtn.Size = UDim2.new(0.92, 0, 0, 36)
 resetBtn.Position = UDim2.new(0.04, 0, 0, yOffset)
 resetBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
 resetBtn.Text = "Reset Character"
 resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-resetBtn.TextSize = 11
+resetBtn.TextSize = 12
 resetBtn.Font = Enum.Font.GothamBold
 resetBtn.Parent = playerContainer
 Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 6)
-local rStroke = Instance.new("UIStroke", resetBtn)
-rStroke.Color = currentThemeColor
-table.insert(themedStrokes, rStroke)
+local rStroke = Instance.new("UIStroke")
+rStroke.Color = Color3.fromRGB(45, 45, 48)
+rStroke.Parent = resetBtn
+table.insert(themeableElements.Buttons, resetBtn)
+table.insert(themeableElements.Texts, resetBtn)
+table.insert(themeableElements.Borders, rStroke)
 
-resetBtn.MouseButton1Click:Connect(function()
+local resetConn = resetBtn.MouseButton1Click:Connect(function()
     local char = player.Character
     local hum = char and char:FindFirstChild("Humanoid")
     if hum then hum.Health = 0 end
 end)
-yOffset = yOffset + 42
+addConnection(resetConn)
+yOffset = yOffset + 44
 
+-- Noclip
 local noclipBtn = createToggleButton("Noclip", playerContainer, yOffset)
-yOffset = yOffset + 42
-noclipBtn.MouseButton1Click:Connect(function()
+yOffset = yOffset + 44
+local function toggleNoclip()
     noclipEnabled = not noclipEnabled
     if noclipEnabled then
         noclipBtn.Text = "Noclip [ON]"
@@ -506,15 +951,20 @@ noclipBtn.MouseButton1Click:Connect(function()
                 end
             end
         end)
+        addConnection(noclipLoop)
+        table.insert(activeLoops, noclipLoop)
     else
         noclipBtn.Text = "Noclip [OFF]"
         noclipBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if noclipLoop then noclipLoop:Disconnect() noclipLoop = nil end
     end
-end)
+end
+local ncConn = noclipBtn.MouseButton1Click:Connect(toggleNoclip)
+addConnection(ncConn)
 
+-- God mode
 local godBtn = createToggleButton("God Mode", playerContainer, yOffset)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 local function setupGodMode(character)
     if not character or not godModeEnabled then return end
     local humanoid = character:WaitForChild("Humanoid", 10)
@@ -524,7 +974,7 @@ local function setupGodMode(character)
     humanoid.Health = math.huge
 end
 
-godBtn.MouseButton1Click:Connect(function()
+local function toggleGodMode()
     godModeEnabled = not godModeEnabled
     if godModeEnabled then
         godBtn.Text = "God Mode [ON]"
@@ -535,6 +985,8 @@ godBtn.MouseButton1Click:Connect(function()
             local hum = char and char:FindFirstChild("Humanoid")
             if hum then hum.Health = hum.MaxHealth end
         end)
+        addConnection(godLoop)
+        table.insert(activeLoops, godLoop)
     else
         godBtn.Text = "God Mode [OFF]"
         godBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
@@ -546,13 +998,16 @@ godBtn.MouseButton1Click:Connect(function()
             hum.Health = 100
         end
     end
-end)
+end
+local gmConn = godBtn.MouseButton1Click:Connect(toggleGodMode)
+addConnection(gmConn)
 
+-- Fly
 local flyBtn = createToggleButton("Fly", playerContainer, yOffset)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 local bg, bv
 
-flyBtn.MouseButton1Click:Connect(function()
+local function toggleFly()
     flyEnabled = not flyEnabled
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -584,6 +1039,7 @@ flyBtn.MouseButton1Click:Connect(function()
             if input.KeyCode == Enum.KeyCode.Space then flyKeys.Space = true end
             if input.KeyCode == Enum.KeyCode.LeftShift then flyKeys.LeftShift = true end
         end)
+        addConnection(flyInputBegan)
 
         flyInputEnded = userInputService.InputEnded:Connect(function(input)
             if input.KeyCode == Enum.KeyCode.W then flyKeys.W = false end
@@ -593,6 +1049,7 @@ flyBtn.MouseButton1Click:Connect(function()
             if input.KeyCode == Enum.KeyCode.Space then flyKeys.Space = false end
             if input.KeyCode == Enum.KeyCode.LeftShift then flyKeys.LeftShift = false end
         end)
+        addConnection(flyInputEnded)
         
         task.spawn(function()
             while flyEnabled and char and hum and hum.Parent do
@@ -618,60 +1075,82 @@ flyBtn.MouseButton1Click:Connect(function()
         if flyInputEnded then flyInputEnded:Disconnect() flyInputEnded = nil end
         if hum then hum.PlatformStand = false end
     end
-end)
+end
+local flyClickConn = flyBtn.MouseButton1Click:Connect(toggleFly)
+addConnection(flyClickConn)
 
 createSlider("Fly Speed", playerContainer, yOffset, 1, 10, flySpeed, function(val) flySpeed = val end)
-yOffset = yOffset + 42
+yOffset = yOffset + 44
 
+-- Invisible
 local function setCharacterTransparency(character, transparency)
     if not character then return end
     for _, desc in ipairs(character:GetDescendants()) do
-        if desc:IsA("BasePart") or desc:IsA("Decal") then desc.Transparency = transparency end
+        if desc:IsA("BasePart") or desc:IsA("Decal") then
+            desc.Transparency = transparency
+        end
+    end
+end
+
+local function applyInvisibility(character, enabled)
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    if enabled then
+        if invisChair then invisChair:Destroy() end
+        if invisConnection then invisConnection:Disconnect() end
+        
+        local savedPos = hrp.CFrame
+        local safeSkyPos = savedPos + Vector3.new(0, 5000, 0)
+        
+        local seat = Instance.new("Seat")
+        seat.Name = "InvisChair"
+        seat.Transparency = 1
+        seat.CanCollide = false
+        seat.CFrame = safeSkyPos
+        seat.Parent = workspace
+        
+        local weld = Instance.new("Weld")
+        weld.Part0 = seat
+        weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+        weld.Parent = seat
+        
+        task.wait()
+        seat.CFrame = savedPos
+        setCharacterTransparency(character, 1)
+        invisChair = seat
+    else
+        if invisChair then invisChair:Destroy() invisChair = nil end
+        if invisConnection then invisConnection:Disconnect() invisConnection = nil end
+        setCharacterTransparency(character, 0)
     end
 end
 
 local invisibleBtn = createToggleButton("Invisible", playerContainer, yOffset)
-yOffset = yOffset + 42
-invisibleBtn.MouseButton1Click:Connect(function()
+yOffset = yOffset + 44
+local function toggleInvisible()
     invisibleEnabled = not invisibleEnabled
     local char = player.Character
     if invisibleEnabled then
         invisibleBtn.Text = "Invisible [ON]"
         invisibleBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            local hrp = char.HumanoidRootPart
-            local savedPos = hrp.CFrame
-            local seat = Instance.new("Seat")
-            seat.Name = "InvisChair"
-            seat.Transparency = 1
-            seat.CanCollide = false
-            seat.CFrame = savedPos + Vector3.new(0, 5000, 0)
-            seat.Parent = workspace
-            
-            local weld = Instance.new("Weld")
-            weld.Part0 = seat
-            weld.Part1 = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
-            weld.Parent = seat
-            
-            task.wait()
-            seat.CFrame = savedPos
-            setCharacterTransparency(char, 1)
-            invisChair = seat
-        end
+        if char then applyInvisibility(char, true) end
     else
         invisibleBtn.Text = "Invisible [OFF]"
         invisibleBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-        if invisChair then invisChair:Destroy() invisChair = nil end
-        if char then setCharacterTransparency(char, 0) end
+        if char then applyInvisibility(char, false) end
     end
-end)
+end
+local invConn = invisibleBtn.MouseButton1Click:Connect(toggleInvisible)
+addConnection(invConn)
 
 -- ==================== ВКЛАДКА FUN ====================
-local yOffsetFun = 8
+local yOffsetFun = 10
 
 local antiFlingBtn = createToggleButton("Anti Fling", funContainer, yOffsetFun)
-yOffsetFun = yOffsetFun + 42
-antiFlingBtn.MouseButton1Click:Connect(function()
+yOffsetFun = yOffsetFun + 44
+local function toggleAntiFling()
     antiFlingEnabled = not antiFlingEnabled
     if antiFlingEnabled then
         antiFlingBtn.Text = "Anti Fling [ON]"
@@ -693,16 +1172,39 @@ antiFlingBtn.MouseButton1Click:Connect(function()
                 end
             end
         end)
+        addConnection(antiFlingLoop)
+        table.insert(activeLoops, antiFlingLoop)
     else
         antiFlingBtn.Text = "Anti Fling [OFF]"
         antiFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end
     end
-end)
+end
+local afConn = antiFlingBtn.MouseButton1Click:Connect(toggleAntiFling)
+addConnection(afConn)
 
+-- X-Ray
 local xrayBtn = createToggleButton("X-Ray", funContainer, yOffsetFun)
-yOffsetFun = yOffsetFun + 42
-xrayBtn.MouseButton1Click:Connect(function()
+yOffsetFun = yOffsetFun + 44
+local function applyXray(p)
+    if p == player or not p.Character then return end
+    if not p.Character:FindFirstChild("XrayHighlight") then
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "XrayHighlight"
+        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+        highlight.FillTransparency = 0.3
+        highlight.Adornee = p.Character
+        highlight.Parent = p.Character
+    end
+end
+
+local function removeXray(p)
+    if p.Character and p.Character:FindFirstChild("XrayHighlight") then
+        p.Character.XrayHighlight:Destroy()
+    end
+end
+
+local function toggleXray()
     xrayEnabled = not xrayEnabled
     if xrayEnabled then
         xrayBtn.Text = "X-Ray [ON]"
@@ -710,31 +1212,26 @@ xrayBtn.MouseButton1Click:Connect(function()
         xrayLoop = runService.Heartbeat:Connect(function()
             if not xrayEnabled then return end
             for _, p in ipairs(players:GetPlayers()) do
-                if p ~= player and p.Character and not p.Character:FindFirstChild("XrayHighlight") then
-                    local highlight = Instance.new("Highlight")
-                    highlight.Name = "XrayHighlight"
-                    highlight.FillColor = Color3.fromRGB(255, 0, 0)
-                    highlight.FillTransparency = 0.3
-                    highlight.Adornee = p.Character
-                    highlight.Parent = p.Character
-                end
+                if p ~= player and p.Character then applyXray(p) end
             end
         end)
+        addConnection(xrayLoop)
+        table.insert(activeLoops, xrayLoop)
     else
         xrayBtn.Text = "X-Ray [OFF]"
         xrayBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if xrayLoop then xrayLoop:Disconnect() xrayLoop = nil end
-        for _, p in ipairs(players:GetPlayers()) do
-            if p.Character and p.Character:FindFirstChild("XrayHighlight") then
-                p.Character.XrayHighlight:Destroy()
-            end
-        end
+        for _, p in ipairs(players:GetPlayers()) do removeXray(p) end
     end
-end)
+end
+local xrayConn = xrayBtn.MouseButton1Click:Connect(toggleXray)
+addConnection(xrayConn)
 
+-- Camera noclip
 local cameraNoclipBtn = createToggleButton("Camera Noclip", funContainer, yOffsetFun)
-yOffsetFun = yOffsetFun + 42
-cameraNoclipBtn.MouseButton1Click:Connect(function()
+yOffsetFun = yOffsetFun + 44
+
+local function toggleCameraNoclip()
     cameraNoclipEnabled = not cameraNoclipEnabled
     if cameraNoclipEnabled then
         cameraNoclipBtn.Text = "Camera Noclip [ON]"
@@ -745,6 +1242,8 @@ cameraNoclipBtn.MouseButton1Click:Connect(function()
             player.CameraMinZoomDistance = cameraDistance
             player.CameraMaxZoomDistance = cameraDistance
         end)
+        addConnection(cameraNoclipConnection)
+        table.insert(activeLoops, cameraNoclipConnection)
     else
         cameraNoclipBtn.Text = "Camera Noclip [OFF]"
         cameraNoclipBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
@@ -752,23 +1251,26 @@ cameraNoclipBtn.MouseButton1Click:Connect(function()
         player.CameraMinZoomDistance = 0.5
         player.CameraMaxZoomDistance = 400
     end
-end)
+end
+local cncConn = cameraNoclipBtn.MouseButton1Click:Connect(toggleCameraNoclip)
+addConnection(cncConn)
 
 -- ==================== ВКЛАДКА TROLL ====================
-local yOffsetTroll = 8
+local yOffsetTroll = 10
 
 local playerListFrame = Instance.new("Frame")
-playerListFrame.Size = UDim2.new(0.92, 0, 0, 110)
+playerListFrame.Size = UDim2.new(0.92, 0, 0, 120)
 playerListFrame.Position = UDim2.new(0.04, 0, 0, yOffsetTroll)
 playerListFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
 playerListFrame.Parent = trollContainer
 Instance.new("UICorner", playerListFrame).CornerRadius = UDim.new(0, 6)
+table.insert(themeableElements.Panels, playerListFrame)
 
 local playerListScroll = Instance.new("ScrollingFrame")
 playerListScroll.Size = UDim2.new(1, 0, 1, 0)
 playerListScroll.BackgroundTransparency = 1
 playerListScroll.CanvasSize = UDim2.new(0, 0, 0, 100)
-playerListScroll.ScrollBarThickness = 2
+playerListScroll.ScrollBarThickness = 3
 playerListScroll.Parent = playerListFrame
 
 local playerButtons = {}
@@ -781,97 +1283,123 @@ local function updatePlayerList()
     for _, p in ipairs(players:GetPlayers()) do
         if p ~= player then
             local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(0.96, 0, 0, 24)
+            btn.Size = UDim2.new(0.96, 0, 0, 25)
             btn.Position = UDim2.new(0.02, 0, 0, y)
             btn.BackgroundColor3 = selectedPlayer == p and Color3.fromRGB(50, 50, 55) or Color3.fromRGB(32, 32, 35)
             btn.Text = p.Name
             btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            btn.TextSize = 10
+            btn.TextSize = 11
             btn.Font = Enum.Font.GothamMedium
             btn.Parent = playerListScroll
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
-            btn.MouseButton1Click:Connect(function()
+            local pBtnConn = btn.MouseButton1Click:Connect(function()
                 for _, b in ipairs(playerButtons) do b.BackgroundColor3 = Color3.fromRGB(32, 32, 35) end
                 btn.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
                 selectedPlayer = p
             end)
+            addConnection(pBtnConn)
             table.insert(playerButtons, btn)
-            y = y + 26
+            y = y + 28
         end
     end
     playerListScroll.CanvasSize = UDim2.new(0, 0, 0, y)
 end
 
 updatePlayerList()
-players.PlayerAdded:Connect(updatePlayerList)
-players.PlayerRemoving:Connect(function(p)
+local paConn = players.PlayerAdded:Connect(updatePlayerList)
+addConnection(paConn)
+
+local prConn = players.PlayerRemoving:Connect(function(p)
     if selectedPlayer == p then selectedPlayer = nil end
     updatePlayerList()
 end)
+addConnection(prConn)
 
-yOffsetTroll = yOffsetTroll + 118
+yOffsetTroll = yOffsetTroll + 128
 
+-- Teleport to Target
 local tpTargetBtn = Instance.new("TextButton")
-tpTargetBtn.Size = UDim2.new(0.92, 0, 0, 34)
+tpTargetBtn.Size = UDim2.new(0.92, 0, 0, 36)
 tpTargetBtn.Position = UDim2.new(0.04, 0, 0, yOffsetTroll)
 tpTargetBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
 tpTargetBtn.Text = "Teleport to Target"
 tpTargetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-tpTargetBtn.TextSize = 11
+tpTargetBtn.TextSize = 12
 tpTargetBtn.Font = Enum.Font.GothamBold
 tpTargetBtn.Parent = trollContainer
 Instance.new("UICorner", tpTargetBtn).CornerRadius = UDim.new(0, 6)
-local tStroke = Instance.new("UIStroke", tpTargetBtn)
-tStroke.Color = currentThemeColor
-table.insert(themedStrokes, tStroke)
+local tptStroke = Instance.new("UIStroke")
+tptStroke.Color = Color3.fromRGB(45, 45, 48)
+tptStroke.Parent = tpTargetBtn
+table.insert(themeableElements.Buttons, tpTargetBtn)
+table.insert(themeableElements.Texts, tpTargetBtn)
+table.insert(themeableElements.Borders, tptStroke)
 
-tpTargetBtn.MouseButton1Click:Connect(function()
+local tptConn = tpTargetBtn.MouseButton1Click:Connect(function()
     if selectedPlayer and selectedPlayer.Character then
         local targetHrp = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
         local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         if targetHrp and myHrp then myHrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 3) end
     end
 end)
-yOffsetTroll = yOffsetTroll + 42
+addConnection(tptConn)
+yOffsetTroll = yOffsetTroll + 44
 
--- ИСПРАВЛЕННЫЙ SPECTATE (с автосбросом при смерти target)
+-- Spectate Target (FIXED SPECTATE LOGIC)
 local spectateBtn = createToggleButton("Spectate Target", trollContainer, yOffsetTroll)
-yOffsetTroll = yOffsetTroll + 42
+yOffsetTroll = yOffsetTroll + 44
 
-local function resetSpectate()
-    spectatingPlayer = nil
-    spectateBtn.Text = "Spectate Target [OFF]"
-    spectateBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-    if spectateConnection then spectateConnection:Disconnect() spectateConnection = nil end
-    if player.Character and player.Character:FindFirstChild("Humanoid") then
-        camera.CameraSubject = player.Character.Humanoid
+local function updateSpectateCamera()
+    if spectatingPlayer then
+        if spectatingPlayer.Parent == nil then
+            spectatingPlayer = nil
+            spectateBtn.Text = "Spectate Target [OFF]"
+            spectateBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+            if player.Character and player.Character:FindFirstChild("Humanoid") then
+                camera.CameraSubject = player.Character.Humanoid
+            end
+            return
+        end
+        local char = spectatingPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hum then
+            camera.CameraSubject = hum
+        end
     end
 end
 
-spectateBtn.MouseButton1Click:Connect(function()
+spectateConnection = runService.RenderStepped:Connect(function()
     if spectatingPlayer then
-        resetSpectate()
+        updateSpectateCamera()
+    end
+end)
+addConnection(spectateConnection)
+table.insert(activeLoops, spectateConnection)
+
+local specConn = spectateBtn.MouseButton1Click:Connect(function()
+    if spectatingPlayer then
+        spectatingPlayer = nil
+        spectateBtn.Text = "Spectate Target [OFF]"
+        spectateBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            camera.CameraSubject = player.Character.Humanoid
+        end
     else
-        if selectedPlayer and selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("Humanoid") then
+        if selectedPlayer then
             spectatingPlayer = selectedPlayer
             spectateBtn.Text = "Spectate Target [ON]"
             spectateBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-            camera.CameraSubject = selectedPlayer.Character.Humanoid
-            
-            if spectateConnection then spectateConnection:Disconnect() end
-            spectateConnection = runService.Heartbeat:Connect(function()
-                if not spectatingPlayer or not spectatingPlayer.Character or not spectatingPlayer.Character:FindFirstChild("Humanoid") or spectatingPlayer.Character.Humanoid.Health <= 0 then
-                    resetSpectate()
-                end
-            end)
+            updateSpectateCamera()
         end
     end
 end)
+addConnection(specConn)
 
+-- Look At Target
 local lookAtBtn = createToggleButton("Look At Target", trollContainer, yOffsetTroll)
-yOffsetTroll = yOffsetTroll + 42
-lookAtBtn.MouseButton1Click:Connect(function()
+yOffsetTroll = yOffsetTroll + 44
+local function toggleLookAt()
     lookAtTargetEnabled = not lookAtTargetEnabled
     if lookAtTargetEnabled then
         lookAtBtn.Text = "Look At Target [ON]"
@@ -886,50 +1414,50 @@ lookAtBtn.MouseButton1Click:Connect(function()
                 end
             end
         end)
+        addConnection(lookAtLoop)
+        table.insert(activeLoops, lookAtLoop)
     else
         lookAtBtn.Text = "Look At Target [OFF]"
         lookAtBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if lookAtLoop then lookAtLoop:Disconnect() lookAtLoop = nil end
     end
-end)
+end
+local lookConn = lookAtBtn.MouseButton1Click:Connect(toggleLookAt)
+addConnection(lookConn)
 
--- ИСПРАВЛЕННЫЙ УЛУЧШЕННЫЙ FLING
-local touchFlingBtn = createToggleButton("Advanced Fling", trollContainer, yOffsetTroll)
-yOffsetTroll = yOffsetTroll + 42
+-- Touch Fling
+local touchFlingBtn = createToggleButton("Touch Fling", trollContainer, yOffsetTroll)
+yOffsetTroll = yOffsetTroll + 44
+local touchFlingActive = false
+local touchFlingConnection = nil
 
-touchFlingBtn.MouseButton1Click:Connect(function()
+local tfConn = touchFlingBtn.MouseButton1Click:Connect(function()
     touchFlingActive = not touchFlingActive
     local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     if touchFlingActive then
-        touchFlingBtn.Text = "Advanced Fling [ON]"
+        touchFlingBtn.Text = "Touch Fling [ON]"
         touchFlingBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
         touchFlingConnection = runService.Heartbeat:Connect(function()
             if not touchFlingActive or not myHRP then return end
-            
-            -- Выполняем раскрутку физики физического тела
-            myHRP.AssemblyLinearVelocity = Vector3.new(20000, 20000, 20000)
-            myHRP.AssemblyAngularVelocity = Vector3.new(20000, 20000, 20000)
-            
             if selectedPlayer and selectedPlayer.Character then
                 local tHRP = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if tHRP then
-                    myHRP.CFrame = tHRP.CFrame * CFrame.new(math.random(-1, 1), 0, math.random(-1, 1))
-                end
+                if tHRP then myHRP.CFrame = tHRP.CFrame * CFrame.new(math.random(-1, 1), 0, math.random(-1, 1)) end
             end
+            myHRP.AssemblyLinearVelocity = Vector3.new(0, 10000, 0)
         end)
+        addConnection(touchFlingConnection)
+        table.insert(activeLoops, touchFlingConnection)
     else
-        touchFlingBtn.Text = "Advanced Fling [OFF]"
+        touchFlingBtn.Text = "Touch Fling [OFF]"
         touchFlingBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if touchFlingConnection then touchFlingConnection:Disconnect() touchFlingConnection = nil end
-        if myHRP then
-            myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            myHRP.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end
+        if myHRP then myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end
     end
 end)
+addConnection(tfConn)
 
 -- ==================== ВКЛАДКА TELEPORT ====================
-local yOffsetTeleport = 8
+local yOffsetTeleport = 10
 
 local setTpBtn = Instance.new("TextButton")
 setTpBtn.Size = UDim2.new(0.92, 0, 0, 36)
@@ -940,15 +1468,19 @@ setTpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 setTpBtn.Font = Enum.Font.GothamBold
 setTpBtn.Parent = teleportContainer
 Instance.new("UICorner", setTpBtn).CornerRadius = UDim.new(0, 6)
-local stStroke = Instance.new("UIStroke", setTpBtn)
-stStroke.Color = currentThemeColor
-table.insert(themedStrokes, stStroke)
+local stpStroke = Instance.new("UIStroke")
+stpStroke.Color = Color3.fromRGB(45, 45, 48)
+stpStroke.Parent = setTpBtn
+table.insert(themeableElements.Buttons, setTpBtn)
+table.insert(themeableElements.Texts, setTpBtn)
+table.insert(themeableElements.Borders, stpStroke)
 
-setTpBtn.MouseButton1Click:Connect(function()
+local stpConn = setTpBtn.MouseButton1Click:Connect(function()
     local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     if hrp then teleportPoint = hrp.CFrame end
 end)
-yOffsetTeleport = yOffsetTeleport + 42
+addConnection(stpConn)
+yOffsetTeleport = yOffsetTeleport + 44
 
 local tpToBtn = Instance.new("TextButton")
 tpToBtn.Size = UDim2.new(0.92, 0, 0, 36)
@@ -959,23 +1491,29 @@ tpToBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 tpToBtn.Font = Enum.Font.GothamBold
 tpToBtn.Parent = teleportContainer
 Instance.new("UICorner", tpToBtn).CornerRadius = UDim.new(0, 6)
-local ttStroke = Instance.new("UIStroke", tpToBtn)
-ttStroke.Color = currentThemeColor
-table.insert(themedStrokes, ttStroke)
+local tptoStroke = Instance.new("UIStroke")
+tptoStroke.Color = Color3.fromRGB(45, 45, 48)
+tptoStroke.Parent = tpToBtn
+table.insert(themeableElements.Buttons, tpToBtn)
+table.insert(themeableElements.Texts, tpToBtn)
+table.insert(themeableElements.Borders, tptoStroke)
 
-tpToBtn.MouseButton1Click:Connect(function()
+local tptoConn = tpToBtn.MouseButton1Click:Connect(function()
     local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     if hrp and teleportPoint then hrp.CFrame = teleportPoint end
 end)
+addConnection(tptoConn)
+yOffsetTeleport = yOffsetTeleport + 44
 
 -- ==================== ВКЛАДКА VISUAL ====================
-local yOffsetVisual = 8
+local yOffsetVisual = 10
 
+-- Tracers ESP
 local tracersBtn = createToggleButton("Tracers ESP", visualContainer, yOffsetVisual)
-yOffsetVisual = yOffsetVisual + 42
+yOffsetVisual = yOffsetVisual + 44
 local tracerPool = {}
 
-tracersBtn.MouseButton1Click:Connect(function()
+local function toggleTracers()
     tracersEnabled = not tracersEnabled
     if tracersEnabled then
         tracersBtn.Text = "Tracers ESP [ON]"
@@ -1002,25 +1540,31 @@ tracersBtn.MouseButton1Click:Connect(function()
             end
             for i = activeCount + 1, #tracerPool do tracerPool[i].Visible = false end
         end)
+        addConnection(tracersLoop)
+        table.insert(activeLoops, tracersLoop)
     else
         tracersBtn.Text = "Tracers ESP [OFF]"
         tracersBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if tracersLoop then tracersLoop:Disconnect() tracersLoop = nil end
         for _, line in ipairs(tracerPool) do line.Visible = false end
     end
-end)
+end
+local trConn = tracersBtn.MouseButton1Click:Connect(toggleTracers)
+addConnection(trConn)
 
 createSlider("Camera FOV", visualContainer, yOffsetVisual, 30, 120, fovVal, 1, function(val)
     fovVal = val
     camera.FieldOfView = fovVal
 end)
+yOffsetVisual = yOffsetVisual + 44
 
 -- ==================== ВКЛАДКА UTILITY ====================
-local yOffsetUtil = 8
+local yOffsetUtil = 10
 
+-- Anti AFK
 local antiAfkBtn = createToggleButton("Anti-AFK", utilityContainer, yOffsetUtil)
-yOffsetUtil = yOffsetUtil + 42
-antiAfkBtn.MouseButton1Click:Connect(function()
+yOffsetUtil = yOffsetUtil + 44
+local function toggleAntiAfk()
     antiAfkEnabled = not antiAfkEnabled
     if antiAfkEnabled then
         antiAfkBtn.Text = "Anti-AFK [ON]"
@@ -1030,15 +1574,19 @@ antiAfkBtn.MouseButton1Click:Connect(function()
             task.wait(1)
             virtualUser:Button2Up(Vector2.new(0,0), camera.CFrame)
         end)
+        addConnection(antiAfkConnection)
     else
         antiAfkBtn.Text = "Anti-AFK [OFF]"
         antiAfkBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
         if antiAfkConnection then antiAfkConnection:Disconnect() antiAfkConnection = nil end
     end
-end)
+end
+local aafkConn = antiAfkBtn.MouseButton1Click:Connect(toggleAntiAfk)
+addConnection(aafkConn)
 
+-- Rejoin Server
 local rejoinBtn = Instance.new("TextButton")
-rejoinBtn.Size = UDim2.new(0.92, 0, 0, 34)
+rejoinBtn.Size = UDim2.new(0.92, 0, 0, 36)
 rejoinBtn.Position = UDim2.new(0.04, 0, 0, yOffsetUtil)
 rejoinBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
 rejoinBtn.Text = "Rejoin Server"
@@ -1046,17 +1594,22 @@ rejoinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 rejoinBtn.Font = Enum.Font.GothamBold
 rejoinBtn.Parent = utilityContainer
 Instance.new("UICorner", rejoinBtn).CornerRadius = UDim.new(0, 6)
-local rjStroke = Instance.new("UIStroke", rejoinBtn)
-rjStroke.Color = currentThemeColor
-table.insert(themedStrokes, rjStroke)
+local rejStroke = Instance.new("UIStroke")
+rejStroke.Color = Color3.fromRGB(45, 45, 48)
+rejStroke.Parent = rejoinBtn
+table.insert(themeableElements.Buttons, rejoinBtn)
+table.insert(themeableElements.Texts, rejoinBtn)
+table.insert(themeableElements.Borders, rejStroke)
 
-rejoinBtn.MouseButton1Click:Connect(function()
+local rejConn = rejoinBtn.MouseButton1Click:Connect(function()
     pcall(function() teleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
 end)
-yOffsetUtil = yOffsetUtil + 42
+addConnection(rejConn)
+yOffsetUtil = yOffsetUtil + 44
 
+-- Server Hop (Low Server)
 local serverHopBtn = Instance.new("TextButton")
-serverHopBtn.Size = UDim2.new(0.92, 0, 0, 34)
+serverHopBtn.Size = UDim2.new(0.92, 0, 0, 36)
 serverHopBtn.Position = UDim2.new(0.04, 0, 0, yOffsetUtil)
 serverHopBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
 serverHopBtn.Text = "Server Hop (Low Player)"
@@ -1064,11 +1617,14 @@ serverHopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 serverHopBtn.Font = Enum.Font.GothamBold
 serverHopBtn.Parent = utilityContainer
 Instance.new("UICorner", serverHopBtn).CornerRadius = UDim.new(0, 6)
-local shStroke = Instance.new("UIStroke", serverHopBtn)
-shStroke.Color = currentThemeColor
-table.insert(themedStrokes, shStroke)
+local shopStroke = Instance.new("UIStroke")
+shopStroke.Color = Color3.fromRGB(45, 45, 48)
+shopStroke.Parent = serverHopBtn
+table.insert(themeableElements.Buttons, serverHopBtn)
+table.insert(themeableElements.Texts, serverHopBtn)
+table.insert(themeableElements.Borders, shopStroke)
 
-serverHopBtn.MouseButton1Click:Connect(function()
+local shopConn = serverHopBtn.MouseButton1Click:Connect(function()
     serverHopBtn.Text = "Searching..."
     task.spawn(function()
         local httpReq = (syn and syn.request) or (http and http.request) or http_request or request
@@ -1091,187 +1647,11 @@ serverHopBtn.MouseButton1Click:Connect(function()
         serverHopBtn.Text = "Server Hop (Low Player)"
     end)
 end)
-
--- ==================== ВКЛАДКА SETTINGS ====================
-local yOffsetSettings = 8
-
--- 1. Перетаскивать панель
-local dragPanelBtn = createToggleButton("Drag Main Panel", settingsContainer, yOffsetSettings)
-yOffsetSettings = yOffsetSettings + 42
-dragPanelBtn.MouseButton1Click:Connect(function()
-    isPanelDraggable = not isPanelDraggable
-    dragPanelBtn.Text = "Drag Main Panel " .. (isPanelDraggable and "[ON]" or "[OFF]")
-    dragPanelBtn.TextColor3 = isPanelDraggable and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
-end)
-
--- 2. Перетаскивать кнопку Daryll
-local dragBtnToggle = createToggleButton("Drag Daryll Button", settingsContainer, yOffsetSettings)
-yOffsetSettings = yOffsetSettings + 42
-dragBtnToggle.MouseButton1Click:Connect(function()
-    isToggleBtnDraggable = not isToggleBtnDraggable
-    dragBtnToggle.Text = "Drag Daryll Button " .. (isToggleBtnDraggable and "[ON]" or "[OFF]")
-    dragBtnToggle.TextColor3 = isToggleBtnDraggable and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
-end)
-
--- 3. Без лимитов
-local noLimitsBtn = createToggleButton("No Limits (Sliders Limit)", settingsContainer, yOffsetSettings)
-yOffsetSettings = yOffsetSettings + 42
-noLimitsBtn.MouseButton1Click:Connect(function()
-    noLimitsEnabled = not noLimitsEnabled
-    noLimitsBtn.Text = "No Limits " .. (noLimitsEnabled and "[ON]" or "[OFF]")
-    noLimitsBtn.TextColor3 = noLimitsEnabled and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
-end)
-
--- 4. Выбор Цвета темы
-local themeLabel = Instance.new("TextLabel")
-themeLabel.Size = UDim2.new(0.92, 0, 0, 20)
-themeLabel.Position = UDim2.new(0.04, 0, 0, yOffsetSettings)
-themeLabel.BackgroundTransparency = 1
-themeLabel.Text = "UI Theme Color:"
-themeLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-themeLabel.TextSize = 11
-themeLabel.Font = Enum.Font.GothamBold
-themeLabel.TextXAlignment = Enum.TextXAlignment.Left
-themeLabel.Parent = settingsContainer
-yOffsetSettings = yOffsetSettings + 24
-
-local themeFrame = Instance.new("Frame")
-themeFrame.Size = UDim2.new(0.92, 0, 0, 32)
-themeFrame.Position = UDim2.new(0.04, 0, 0, yOffsetSettings)
-themeFrame.BackgroundTransparency = 1
-themeFrame.Parent = settingsContainer
-
-local colors = {
-    {name = "Black", color = Color3.fromRGB(45, 45, 48)},
-    {name = "Blue", color = Color3.fromRGB(37, 99, 235)},
-    {name = "Purple", color = Color3.fromRGB(147, 51, 234)},
-    {name = "Pink", color = Color3.fromRGB(236, 72, 153)}
-}
-
-local function applyTheme(newColor)
-    currentThemeColor = newColor
-    for _, stroke in ipairs(themedStrokes) do
-        if stroke then stroke.Color = currentThemeColor end
-    end
-end
-
-for idx, t in ipairs(colors) do
-    local cBtn = Instance.new("TextButton")
-    cBtn.Size = UDim2.new(0.22, 0, 1, 0)
-    cBtn.Position = UDim2.new((idx-1)*0.26, 0, 0, 0)
-    cBtn.BackgroundColor3 = t.color
-    cBtn.Text = t.name
-    cBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    cBtn.TextSize = 10
-    cBtn.Font = Enum.Font.GothamBold
-    cBtn.Parent = themeFrame
-    Instance.new("UICorner", cBtn).CornerRadius = UDim.new(0, 4)
-    
-    cBtn.MouseButton1Click:Connect(function()
-        applyTheme(t.color)
-    end)
-end
-
-yOffsetSettings = yOffsetSettings + 42
-
--- 5. Кнопка выхода (Exit Script)
-local exitBtn = Instance.new("TextButton")
-exitBtn.Size = UDim2.new(0.92, 0, 0, 36)
-exitBtn.Position = UDim2.new(0.04, 0, 0, yOffsetSettings)
-exitBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-exitBtn.Text = "Exit Hub"
-exitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-exitBtn.Font = Enum.Font.GothamBold
-exitBtn.TextSize = 12
-exitBtn.Parent = settingsContainer
-Instance.new("UICorner", exitBtn).CornerRadius = UDim.new(0, 6)
-
--- Окно подтверждения
-local confirmFrame = Instance.new("Frame")
-confirmFrame.Size = UDim2.new(0, 260, 0, 120)
-confirmFrame.Position = UDim2.new(0.5, -130, 0.5, -60)
-confirmFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
-confirmFrame.BorderSizePixel = 0
-confirmFrame.Visible = false
-confirmFrame.ZIndex = 10
-confirmFrame.Parent = screenGui
-Instance.new("UICorner", confirmFrame).CornerRadius = UDim.new(0, 8)
-
-local confirmStroke = Instance.new("UIStroke")
-confirmStroke.Color = Color3.fromRGB(200, 50, 50)
-confirmStroke.Thickness = 1.5
-confirmStroke.Parent = confirmFrame
-
-local confirmText = Instance.new("TextLabel")
-confirmText.Size = UDim2.new(1, -20, 0, 50)
-confirmText.Position = UDim2.new(0, 10, 0, 10)
-confirmText.BackgroundTransparency = 1
-confirmText.Text = "Are you sure you want to disable DaryllHub?"
-confirmText.TextColor3 = Color3.fromRGB(255, 255, 255)
-confirmText.TextSize = 12
-confirmText.Font = Enum.Font.GothamBold
-confirmText.TextWrapped = true
-confirmText.ZIndex = 11
-confirmText.Parent = confirmFrame
-
-local yesBtn = Instance.new("TextButton")
-yesBtn.Size = UDim2.new(0.4, 0, 0, 30)
-yesBtn.Position = UDim2.new(0.08, 0, 0.65, 0)
-yesBtn.BackgroundColor3 = Color3.fromRGB(220, 38, 38)
-yesBtn.Text = "Yes"
-yesBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-yesBtn.Font = Enum.Font.GothamBold
-yesBtn.ZIndex = 11
-yesBtn.Parent = confirmFrame
-Instance.new("UICorner", yesBtn).CornerRadius = UDim.new(0, 4)
-
-local noBtn = Instance.new("TextButton")
-noBtn.Size = UDim2.new(0.4, 0, 0, 30)
-noBtn.Position = UDim2.new(0.52, 0, 0.65, 0)
-noBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-noBtn.Text = "No"
-noBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-noBtn.Font = Enum.Font.GothamBold
-noBtn.ZIndex = 11
-noBtn.Parent = confirmFrame
-Instance.new("UICorner", noBtn).CornerRadius = UDim.new(0, 4)
-
-exitBtn.MouseButton1Click:Connect(function()
-    confirmFrame.Visible = true
-end)
-
-noBtn.MouseButton1Click:Connect(function()
-    confirmFrame.Visible = false
-end)
-
-yesBtn.MouseButton1Click:Connect(function()
-    -- Отключаем все соединения и циклы
-    if godLoop then godLoop:Disconnect() end
-    if noclipLoop then noclipLoop:Disconnect() end
-    if antiFlingLoop then antiFlingLoop:Disconnect() end
-    if xrayLoop then xrayLoop:Disconnect() end
-    if infiniteJumpConnection then infiniteJumpConnection:Disconnect() end
-    if cameraNoclipConnection then cameraNoclipConnection:Disconnect() end
-    if clickTpConnection then clickTpConnection:Disconnect() end
-    if bhopConnection then bhopConnection:Disconnect() end
-    if spinbotLoop then spinbotLoop:Disconnect() end
-    if tracersLoop then tracersLoop:Disconnect() end
-    if antiAfkConnection then antiAfkConnection:Disconnect() end
-    if lookAtLoop then lookAtLoop:Disconnect() end
-    if spectateConnection then spectateConnection:Disconnect() end
-    if touchFlingConnection then touchFlingConnection:Disconnect() end
-    
-    for _, line in ipairs(tracerPool) do line:Remove() end
-    if spectatingPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
-        camera.CameraSubject = player.Character.Humanoid
-    end
-    
-    screenGui:Destroy()
-    print("DaryllHub core safely shut down.")
-end)
+addConnection(shopConn)
+yOffsetUtil = yOffsetUtil + 44
 
 -- ==================== ОБЩИЕ СОБЫТИЯ ====================
-player.CharacterAdded:Connect(function(newCharacter)
+local charConn = player.CharacterAdded:Connect(function(newCharacter)
     task.wait(0.3)
     local humanoid = newCharacter:WaitForChild("Humanoid", 5)
     if humanoid then
@@ -1281,7 +1661,9 @@ player.CharacterAdded:Connect(function(newCharacter)
         humanoid.HipHeight = hipHeightVal
     end
     if godModeEnabled then setupGodMode(newCharacter) end
-    if invisibleEnabled and invisChair then setCharacterTransparency(newCharacter, 1) end
+    if invisibleEnabled then applyInvisibility(newCharacter, true) end
+    if spectatingPlayer then updateSpectateCamera() end
 end)
+addConnection(charConn)
 
-print("DaryllHub Loaded Successfully!")
+print("DaryllHub (Fixed Edition) Loaded Successfully!")
