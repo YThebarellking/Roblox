@@ -1,5 +1,5 @@
 --==================================================
--- DaryllHub Xeno - Reworked UI
+-- DaryllHub Xeno - Reworked UI (Fixed)
 --==================================================
 
 local Players = game:GetService("Players")
@@ -289,7 +289,7 @@ local Original = {
 
     ClockTime = Lighting.ClockTime,
 
-    FOV = Camera.FieldOfView,
+    FOV = Camera and Camera.FieldOfView or 70, -- Исправлено: проверка на nil
 
     CameraMinZoom = LocalPlayer.CameraMinZoomDistance,
     CameraMaxZoom = LocalPlayer.CameraMaxZoomDistance,
@@ -545,7 +545,6 @@ local function createContainer(name)
     container.Active = true
     container.ScrollingDirection = Enum.ScrollingDirection.Y
 
-    -- Основное исправление скролла:
     container.AutomaticCanvasSize = Enum.AutomaticSize.Y
     container.CanvasSize = UDim2.new(0, 0, 0, 0)
 
@@ -1818,6 +1817,32 @@ local AntiAFKButton = createToggle(
 
 y = y + 46
 
+-- ИСПРАВЛЕНО: добавлена проверка на наличие VirtualUser
+local function triggerAntiAFK()
+    if not VirtualUser then
+        -- Если VirtualUser недоступен, используем альтернативный метод
+        local mouse = LocalPlayer:GetMouse()
+        if mouse then
+            mouse.Move(Vector2.new(0, 1))
+        end
+        return
+    end
+    
+    pcall(function()
+        VirtualUser:Button2Down(
+            Vector2.new(0, 0),
+            Camera.CFrame
+        )
+
+        task.wait(0.1)
+
+        VirtualUser:Button2Up(
+            Vector2.new(0, 0),
+            Camera.CFrame
+        )
+    end)
+end
+
 AntiAFKButton.MouseButton1Click:Connect(function()
     State.Anti.AntiAFK =
         not State.Anti.AntiAFK
@@ -1832,19 +1857,7 @@ AntiAFKButton.MouseButton1Click:Connect(function()
         connect(
             "AntiAFK",
             LocalPlayer.Idled,
-            function()
-                VirtualUser:Button2Down(
-                    Vector2.new(0, 0),
-                    Camera.CFrame
-                )
-
-                task.wait(1)
-
-                VirtualUser:Button2Up(
-                    Vector2.new(0, 0),
-                    Camera.CFrame
-                )
-            end
+            triggerAntiAFK
         )
     else
         disconnect("AntiAFK")
@@ -2079,7 +2092,9 @@ createSlider(
     1,
     function(value)
         State.Visual.FOV = value
-        Camera.FieldOfView = value
+        if Camera then
+            Camera.FieldOfView = value
+        end
     end
 )
 
@@ -2213,6 +2228,9 @@ local AutoTeleportButton = createToggle(
 
 y = y + 46
 
+-- ИСПРАВЛЕНО: используем task.spawn для избежания блокировки
+local autoTeleportThread = nil
+
 SavePositionButton.MouseButton1Click:Connect(function()
     local root = getRoot()
 
@@ -2273,14 +2291,20 @@ AutoTeleportButton.MouseButton1Click:Connect(function()
     )
 
     if State.Teleport.AutoTeleport then
-        task.spawn(function()
+        if autoTeleportThread then
+            task.cancel(autoTeleportThread)
+        end
+        
+        autoTeleportThread = task.spawn(function()
             while State.Teleport.AutoTeleport do
                 if State.Teleport.Point then
                     local root = getRoot()
 
                     if root then
-                        root.CFrame =
-                            State.Teleport.Point
+                        pcall(function()
+                            root.CFrame =
+                                State.Teleport.Point
+                        end)
                     end
                 end
 
@@ -2289,6 +2313,11 @@ AutoTeleportButton.MouseButton1Click:Connect(function()
                 )
             end
         end)
+    else
+        if autoTeleportThread then
+            task.cancel(autoTeleportThread)
+            autoTeleportThread = nil
+        end
     end
 end)
 
@@ -2376,12 +2405,15 @@ local function rebuildPlayerList()
 
     rebuildingPlayers = true
 
-    for _, object in ipairs(
-        PlayerList:GetChildren()
-    ) do
+    -- ИСПРАВЛЕНО: очищаем только TextButton
+    local childrenToRemove = {}
+    for _, object in ipairs(PlayerList:GetChildren()) do
         if object:IsA("TextButton") then
-            object:Destroy()
+            table.insert(childrenToRemove, object)
         end
+    end
+    for _, object in ipairs(childrenToRemove) do
+        object:Destroy()
     end
 
     local offset = 5
@@ -3291,6 +3323,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     end
 end)
 
+-- ИСПРАВЛЕНО: обработка смены камеры с проверкой на nil
 workspace:GetPropertyChangedSignal(
     "CurrentCamera"
 ):Connect(function()
@@ -3354,6 +3387,11 @@ ScreenGui.Destroying:Connect(function()
         FPSAddedConnection = nil
     end
 
+    if autoTeleportThread then
+        task.cancel(autoTeleportThread)
+        autoTeleportThread = nil
+    end
+
     clearXRay()
 
     disableNoclip()
@@ -3382,8 +3420,10 @@ ScreenGui.Destroying:Connect(function()
     Lighting.ClockTime =
         Original.ClockTime
 
-    Camera.FieldOfView =
-        Original.FOV
+    if Camera then
+        Camera.FieldOfView =
+            Original.FOV
+    end
 
     LocalPlayer.CameraMinZoomDistance =
         Original.CameraMinZoom
@@ -3448,8 +3488,10 @@ end
 workspace.Gravity =
     State.Player.Gravity
 
-Camera.FieldOfView =
-    State.Visual.FOV
+if Camera then
+    Camera.FieldOfView =
+        State.Visual.FOV
+end
 
 selectTab("Player")
 
