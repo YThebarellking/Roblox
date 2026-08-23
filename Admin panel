@@ -2168,21 +2168,15 @@ end)
 LocalPlayer.CharacterAdded:Connect(function(character)
     task.wait(0.25)
 
-    local humanoid =
-        character:WaitForChild("Humanoid", 5)
+    local humanoid = character:WaitForChild("Humanoid", 5)
 
     if humanoid then
         captureCharacterDefaults(character)
 
         humanoid.UseJumpPower = true
-        humanoid.WalkSpeed =
-            State.Player.WalkSpeed
-
-        humanoid.JumpPower =
-            State.Player.JumpPower
-
-        humanoid.HipHeight =
-            State.Player.HipHeight
+        humanoid.WalkSpeed = State.Player.WalkSpeed
+        humanoid.JumpPower = State.Player.JumpPower
+        humanoid.HipHeight = State.Player.HipHeight
     end
 
     if State.Player.Noclip then
@@ -2211,15 +2205,15 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     end
 
     if State.Players.Spectating then
-        local target =
-            State.Players.Selected
+        local target = State.Players.Selected
 
-        if target
-            and target.Character
-            and target.Character:FindFirstChildOfClass("Humanoid") then
-
-            Camera.CameraSubject =
+        if target and target.Character then
+            local targetHumanoid =
                 target.Character:FindFirstChildOfClass("Humanoid")
+
+            if targetHumanoid then
+                Camera.CameraSubject = targetHumanoid
+            end
         end
     end
 end)
@@ -2229,9 +2223,7 @@ end)
 --==================================================
 
 if LocalPlayer.Character then
-    captureCharacterDefaults(
-        LocalPlayer.Character
-    )
+    captureCharacterDefaults(LocalPlayer.Character)
 end
 
 selectTab("Player")
