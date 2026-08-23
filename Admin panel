@@ -1,5 +1,5 @@
 --==================================================
--- DaryllHub Xeno - Improved
+-- DaryllHub Xeno - Reworked
 --==================================================
 
 local Players = game:GetService("Players")
@@ -21,23 +21,25 @@ local State = {
     Player = {
         WalkSpeed = 16,
         JumpPower = 50,
-        Gravity = workspace.Gravity,
+        Gravity = 196.2,
         HipHeight = 2,
 
         InfiniteJump = false,
-        Noclip = false,
         GodMode = false,
-        Fly = false,
         Invisible = false,
-        ClickTP = false,
     },
 
     Movement = {
+        Noclip = false,
+        Fly = false,
         FlySpeed = 2,
+
+        ClickTP = false,
+
+        CameraNoclip = false,
         CameraDistance = 12,
         MinCameraDistance = 2,
         MaxCameraDistance = 50,
-        CameraNoclip = false,
     },
 
     Anti = {
@@ -52,8 +54,10 @@ local State = {
         XRay = false,
         Fullbright = false,
         NoFog = false,
+
         FOV = 70,
         TimeOfDay = 12,
+
         Light = false,
         LightRange = 5,
         LightBrightness = 3,
@@ -72,7 +76,7 @@ local State = {
 
     Utility = {
         FPSBoosted = false,
-    }
+    },
 }
 
 --==================================================
@@ -84,10 +88,10 @@ local Connections = {}
 local function connect(name, signal, callback)
     if Connections[name] then
         Connections[name]:Disconnect()
-        Connections[name] = nil
     end
 
     Connections[name] = signal:Connect(callback)
+
     return Connections[name]
 end
 
@@ -103,6 +107,7 @@ local function disconnectAll()
         if connection then
             connection:Disconnect()
         end
+
         Connections[name] = nil
     end
 end
@@ -117,30 +122,43 @@ end
 
 local function getHumanoid()
     local character = getCharacter()
-    return character and character:FindFirstChildOfClass("Humanoid")
+
+    if not character then
+        return nil
+    end
+
+    return character:FindFirstChildOfClass("Humanoid")
 end
 
 local function getRoot()
     local character = getCharacter()
-    return character and character:FindFirstChild("HumanoidRootPart")
-end
 
-local function setButtonState(button, text, enabled)
-    if not button then
-        return
+    if not character then
+        return nil
     end
 
-    button.Text = text .. (enabled and " [ON]" or " [OFF]")
-    button.TextColor3 = enabled
-        and Color3.fromRGB(50, 200, 50)
-        or Color3.fromRGB(200, 50, 50)
+    return character:FindFirstChild("HumanoidRootPart")
 end
 
-local function safeDestroy(instance)
+local function destroy(instance)
     if instance then
         pcall(function()
             instance:Destroy()
         end)
+    end
+end
+
+local function setToggleVisual(button, label, enabled)
+    if not button then
+        return
+    end
+
+    if enabled then
+        button.Text = label .. " [ON]"
+        button.TextColor3 = Color3.fromRGB(60, 210, 80)
+    else
+        button.Text = label .. " [OFF]"
+        button.TextColor3 = Color3.fromRGB(220, 70, 70)
     end
 end
 
@@ -157,29 +175,34 @@ local Original = {
     FogStart = Lighting.FogStart,
     FogEnd = Lighting.FogEnd,
 
-    CameraFOV = Camera.FieldOfView,
+    ClockTime = Lighting.ClockTime,
+
+    FOV = Camera.FieldOfView,
 
     CameraMinZoom = LocalPlayer.CameraMinZoomDistance,
     CameraMaxZoom = LocalPlayer.CameraMaxZoomDistance,
+
+    WalkSpeed = 16,
+    JumpPower = 50,
+    UseJumpPower = true,
+    HipHeight = 2,
 }
 
-local CharacterOriginal = {
-    WalkSpeed = nil,
-    JumpPower = nil,
-    UseJumpPower = nil,
-    HipHeight = nil,
-}
+local CharacterDefaultsCaptured = false
 
 local function captureCharacterDefaults(character)
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
     if not humanoid then
         return
     end
 
-    CharacterOriginal.WalkSpeed = humanoid.WalkSpeed
-    CharacterOriginal.JumpPower = humanoid.JumpPower
-    CharacterOriginal.UseJumpPower = humanoid.UseJumpPower
-    CharacterOriginal.HipHeight = humanoid.HipHeight
+    Original.WalkSpeed = humanoid.WalkSpeed
+    Original.JumpPower = humanoid.JumpPower
+    Original.UseJumpPower = humanoid.UseJumpPower
+    Original.HipHeight = humanoid.HipHeight
+
+    CharacterDefaultsCaptured = true
 end
 
 --==================================================
@@ -187,20 +210,25 @@ end
 --==================================================
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "DaryllHub_Improved"
+ScreenGui.Name = "DaryllHub_Xeno"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-pcall(function()
+local parentSuccess = pcall(function()
     ScreenGui.Parent = CoreGui
 end)
 
-if not ScreenGui.Parent then
+if not parentSuccess or not ScreenGui.Parent then
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
+--==================================================
+-- MAIN WINDOW
+--==================================================
+
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "Main"
+MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 470, 0, 340)
 MainFrame.Position = UDim2.new(0.5, -235, 0.5, -170)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
@@ -208,96 +236,107 @@ MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 9)
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 9)
+MainCorner.Parent = MainFrame
 
 local MainStroke = Instance.new("UIStroke")
 MainStroke.Color = Color3.fromRGB(45, 45, 48)
 MainStroke.Thickness = 1
 MainStroke.Parent = MainFrame
 
+--==================================================
+-- TITLE
+--==================================================
+
 local Title = Instance.new("TextLabel")
+Title.Name = "Title"
 Title.Size = UDim2.new(1, 0, 0, 42)
 Title.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
+Title.BorderSizePixel = 0
 Title.Text = "DaryllHub"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
 Title.Font = Enum.Font.GothamBold
-Title.BorderSizePixel = 0
 Title.Parent = MainFrame
 
-Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 9)
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 9)
+TitleCorner.Parent = Title
 
 --==================================================
 -- WINDOW DRAG
 --==================================================
 
 local dragging = false
-local dragStart
-local startPos
+local dragStart = nil
+local dragOrigin = nil
 
-connect(
-    "WindowDrag",
-    Title.InputBegan,
-    function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
 
-            dragging = true
-            dragStart = input.Position
-            startPos = MainFrame.Position
+        dragging = true
+        dragStart = input.Position
+        dragOrigin = MainFrame.Position
 
-            local changedConnection
-            changedConnection = input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                    if changedConnection then
-                        changedConnection:Disconnect()
-                    end
+        local changedConnection
+
+        changedConnection = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+
+                if changedConnection then
+                    changedConnection:Disconnect()
                 end
-            end)
-        end
+            end
+        end)
     end
-)
+end)
 
-connect(
-    "WindowDragChanged",
-    UserInputService.InputChanged,
-    function(input)
-        if not dragging then
-            return
-        end
-
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement
-            and input.UserInputType ~= Enum.UserInputType.Touch then
-            return
-        end
-
-        local delta = input.Position - dragStart
-
-        MainFrame.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then
+        return
     end
-)
+
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement
+        and input.UserInputType ~= Enum.UserInputType.Touch then
+        return
+    end
+
+    if not dragStart or not dragOrigin then
+        return
+    end
+
+    local delta = input.Position - dragStart
+
+    MainFrame.Position = UDim2.new(
+        dragOrigin.X.Scale,
+        dragOrigin.X.Offset + delta.X,
+        dragOrigin.Y.Scale,
+        dragOrigin.Y.Offset + delta.Y
+    )
+end)
 
 --==================================================
--- SHOW/HIDE BUTTON
+-- FLOATING BUTTON
 --==================================================
 
 local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
 ToggleButton.Size = UDim2.new(0, 58, 0, 58)
 ToggleButton.Position = UDim2.new(0.02, 0, 0.12, 0)
 ToggleButton.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
+ToggleButton.BorderSizePixel = 0
 ToggleButton.Text = "D"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.TextSize = 17
 ToggleButton.Font = Enum.Font.GothamBold
 ToggleButton.Parent = ScreenGui
 
-Instance.new("UICorner", ToggleButton).CornerRadius = UDim.new(1, 0)
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(1, 0)
+ToggleCorner.Parent = ToggleButton
 
 local ToggleStroke = Instance.new("UIStroke")
 ToggleStroke.Color = Color3.fromRGB(45, 45, 48)
@@ -309,10 +348,11 @@ ToggleButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- TABS
+-- TAB PANEL
 --==================================================
 
 local TabPanel = Instance.new("Frame")
+TabPanel.Name = "TabPanel"
 TabPanel.Size = UDim2.new(0, 95, 1, -42)
 TabPanel.Position = UDim2.new(0, 0, 0, 42)
 TabPanel.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
@@ -332,62 +372,85 @@ local TabNames = {
 local Containers = {}
 local TabButtons = {}
 
-local function createTabContainer(name)
-    local frame = Instance.new("ScrollingFrame")
-    frame.Name = name .. "Container"
-    frame.Size = UDim2.new(1, -105, 1, -52)
-    frame.Position = UDim2.new(0, 100, 0, 47)
-    frame.BackgroundTransparency = 1
-    frame.BorderSizePixel = 0
-    frame.ScrollBarThickness = 3
-    frame.ScrollBarImageColor3 = Color3.fromRGB(65, 65, 70)
-    frame.CanvasSize = UDim2.new(0, 0, 0, 700)
-    frame.Visible = false
-    frame.Parent = MainFrame
+local function createContainer(name)
+    local container = Instance.new("ScrollingFrame")
 
-    Containers[name] = frame
+    container.Name = name .. "Container"
+    container.Size = UDim2.new(1, -105, 1, -52)
+    container.Position = UDim2.new(0, 100, 0, 47)
 
-    return frame
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+
+    container.ScrollBarThickness = 3
+    container.ScrollBarImageColor3 =
+        Color3.fromRGB(65, 65, 70)
+
+    container.CanvasSize =
+        UDim2.new(0, 0, 0, 800)
+
+    container.Parent = MainFrame
+
+    Containers[name] = container
+
+    return container
 end
 
 for _, tabName in ipairs(TabNames) do
-    createTabContainer(tabName)
+    createContainer(tabName)
 end
 
-local function selectTab(name)
-    for tabName, container in pairs(Containers) do
-        container.Visible = tabName == name
+local function selectTab(tabName)
+    for name, container in pairs(Containers) do
+        container.Visible = name == tabName
     end
 
-    for tabName, button in pairs(TabButtons) do
-        local active = tabName == name
+    for name, button in pairs(TabButtons) do
+        if name == tabName then
+            button.BackgroundColor3 =
+                Color3.fromRGB(36, 36, 40)
 
-        button.BackgroundColor3 = active
-            and Color3.fromRGB(36, 36, 40)
-            or Color3.fromRGB(24, 24, 26)
+            button.TextColor3 =
+                Color3.fromRGB(255, 255, 255)
+        else
+            button.BackgroundColor3 =
+                Color3.fromRGB(24, 24, 26)
 
-        button.TextColor3 = active
-            and Color3.fromRGB(255, 255, 255)
-            or Color3.fromRGB(150, 150, 150)
+            button.TextColor3 =
+                Color3.fromRGB(150, 150, 150)
+        end
     end
 end
 
-for index, name in ipairs(TabNames) do
+for index, tabName in ipairs(TabNames) do
     local button = Instance.new("TextButton")
+
+    button.Name = tabName .. "Tab"
     button.Size = UDim2.new(1, 0, 0, 38)
-    button.Position = UDim2.new(0, 0, 0, (index - 1) * 38)
-    button.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
-    button.Text = name
-    button.TextColor3 = Color3.fromRGB(150, 150, 150)
+    button.Position = UDim2.new(
+        0,
+        0,
+        0,
+        (index - 1) * 38
+    )
+
+    button.BackgroundColor3 =
+        Color3.fromRGB(24, 24, 26)
+
+    button.BorderSizePixel = 0
+    button.Text = tabName
+    button.TextColor3 =
+        Color3.fromRGB(150, 150, 150)
+
     button.TextSize = 11
     button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 0
+
     button.Parent = TabPanel
 
-    TabButtons[name] = button
+    TabButtons[tabName] = button
 
     button.MouseButton1Click:Connect(function()
-        selectTab(name)
+        selectTab(tabName)
     end)
 end
 
@@ -397,17 +460,27 @@ end
 
 local function createToggle(text, parent, y)
     local button = Instance.new("TextButton")
+
     button.Size = UDim2.new(0.92, 0, 0, 36)
     button.Position = UDim2.new(0.04, 0, 0, y)
-    button.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+
+    button.BackgroundColor3 =
+        Color3.fromRGB(28, 28, 30)
+
+    button.BorderSizePixel = 0
     button.Text = text .. " [OFF]"
-    button.TextColor3 = Color3.fromRGB(200, 50, 50)
+
+    button.TextColor3 =
+        Color3.fromRGB(220, 70, 70)
+
     button.TextSize = 12
     button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 0
+
     button.Parent = parent
 
-    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
 
     local stroke = Instance.new("UIStroke")
     stroke.Color = Color3.fromRGB(45, 45, 48)
@@ -419,113 +492,197 @@ end
 
 local function createAction(text, parent, y)
     local button = Instance.new("TextButton")
+
     button.Size = UDim2.new(0.92, 0, 0, 36)
     button.Position = UDim2.new(0.04, 0, 0, y)
-    button.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+
+    button.BackgroundColor3 =
+        Color3.fromRGB(28, 28, 30)
+
+    button.BorderSizePixel = 0
     button.Text = text
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+    button.TextColor3 =
+        Color3.fromRGB(255, 255, 255)
+
     button.TextSize = 12
     button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 0
+
     button.Parent = parent
 
-    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
 
     local stroke = Instance.new("UIStroke")
     stroke.Color = Color3.fromRGB(45, 45, 48)
+    stroke.Thickness = 1
     stroke.Parent = button
 
     return button
 end
 
-local function createSlider(text, parent, y, minValue, maxValue, defaultValue, step, callback)
+local function createSlider(
+    text,
+    parent,
+    y,
+    minimum,
+    maximum,
+    defaultValue,
+    step,
+    callback
+)
     local frame = Instance.new("Frame")
+
     frame.Size = UDim2.new(0.92, 0, 0, 38)
     frame.Position = UDim2.new(0.04, 0, 0, y)
-    frame.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
+
+    frame.BackgroundColor3 =
+        Color3.fromRGB(28, 28, 30)
+
     frame.BorderSizePixel = 0
     frame.Parent = parent
 
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
 
     local stroke = Instance.new("UIStroke")
     stroke.Color = Color3.fromRGB(45, 45, 48)
+    stroke.Thickness = 1
     stroke.Parent = frame
 
     local label = Instance.new("TextLabel")
+
     label.Size = UDim2.new(0.52, 0, 1, 0)
     label.Position = UDim2.new(0.03, 0, 0, 0)
+
     label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(230, 230, 230)
+
+    label.TextColor3 =
+        Color3.fromRGB(230, 230, 230)
+
     label.TextSize = 11
-    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextXAlignment =
+        Enum.TextXAlignment.Left
+
     label.Font = Enum.Font.GothamMedium
     label.Parent = frame
 
     local minus = Instance.new("TextButton")
+
     minus.Size = UDim2.new(0.18, 0, 0.7, 0)
     minus.Position = UDim2.new(0.60, 0, 0.15, 0)
-    minus.BackgroundColor3 = Color3.fromRGB(40, 40, 44)
+
+    minus.BackgroundColor3 =
+        Color3.fromRGB(40, 40, 44)
+
+    minus.BorderSizePixel = 0
     minus.Text = "-"
-    minus.TextColor3 = Color3.fromRGB(255, 255, 255)
+    minus.TextColor3 =
+        Color3.fromRGB(255, 255, 255)
+
     minus.TextSize = 14
     minus.Font = Enum.Font.GothamBold
     minus.Parent = frame
 
-    Instance.new("UICorner", minus).CornerRadius = UDim.new(0, 4)
+    local minusCorner = Instance.new("UICorner")
+    minusCorner.CornerRadius =
+        UDim.new(0, 4)
+
+    minusCorner.Parent = minus
 
     local plus = Instance.new("TextButton")
+
     plus.Size = UDim2.new(0.18, 0, 0.7, 0)
     plus.Position = UDim2.new(0.80, 0, 0.15, 0)
-    plus.BackgroundColor3 = Color3.fromRGB(40, 40, 44)
+
+    plus.BackgroundColor3 =
+        Color3.fromRGB(40, 40, 44)
+
+    plus.BorderSizePixel = 0
     plus.Text = "+"
-    plus.TextColor3 = Color3.fromRGB(255, 255, 255)
+    plus.TextColor3 =
+        Color3.fromRGB(255, 255, 255)
+
     plus.TextSize = 14
     plus.Font = Enum.Font.GothamBold
     plus.Parent = frame
 
-    Instance.new("UICorner", plus).CornerRadius = UDim.new(0, 4)
+    local plusCorner = Instance.new("UICorner")
+    plusCorner.CornerRadius =
+        UDim.new(0, 4)
+
+    plusCorner.Parent = plus
 
     local value = defaultValue
 
-    local function update(newValue)
-        newValue = math.clamp(newValue, minValue, maxValue)
+    local function formatValue(number)
+        if step < 1 then
+            return string.format("%.1f", number)
+        end
 
-        local decimals = step < 1 and 2 or 0
-        local multiplier = 10 ^ decimals
+        return tostring(math.floor(number + 0.5))
+    end
 
-        newValue = math.round(newValue * multiplier) / multiplier
+    local function setValue(newValue)
+        newValue = math.clamp(
+            newValue,
+            minimum,
+            maximum
+        )
+
+        if step < 1 then
+            newValue =
+                math.floor(
+                    (newValue / step) + 0.5
+                ) * step
+
+            newValue =
+                math.floor(
+                    newValue * 10 + 0.5
+                ) / 10
+        else
+            newValue =
+                math.floor(
+                    newValue / step + 0.5
+                ) * step
+        end
 
         value = newValue
-        label.Text = text .. ": " .. tostring(newValue)
+
+        label.Text =
+            text .. ": " .. formatValue(value)
 
         if callback then
-            callback(newValue)
+            callback(value)
         end
     end
 
     plus.MouseButton1Click:Connect(function()
-        update(value + step)
+        setValue(value + step)
     end)
 
     minus.MouseButton1Click:Connect(function()
-        update(value - step)
+        setValue(value - step)
     end)
 
-    update(defaultValue)
+    setValue(defaultValue)
 
     return {
         Frame = frame,
         Label = label,
+
         GetValue = function()
             return value
         end,
-        SetValue = update,
+
+        SetValue = setValue,
     }
 end
 
 --==================================================
--- PLAYER
+-- PLAYER TAB
 --==================================================
 
 local PlayerContainer = Containers.Player
@@ -543,13 +700,14 @@ createSlider(
         State.Player.WalkSpeed = value
 
         local humanoid = getHumanoid()
+
         if humanoid then
             humanoid.WalkSpeed = value
         end
     end
 )
 
-y += 46
+y = y + 46
 
 createSlider(
     "Jump Power",
@@ -563,6 +721,7 @@ createSlider(
         State.Player.JumpPower = value
 
         local humanoid = getHumanoid()
+
         if humanoid then
             humanoid.UseJumpPower = true
             humanoid.JumpPower = value
@@ -570,7 +729,7 @@ createSlider(
     end
 )
 
-y += 46
+y = y + 46
 
 createSlider(
     "Gravity",
@@ -586,7 +745,7 @@ createSlider(
     end
 )
 
-y += 46
+y = y + 46
 
 createSlider(
     "Hip Height",
@@ -600,26 +759,30 @@ createSlider(
         State.Player.HipHeight = value
 
         local humanoid = getHumanoid()
+
         if humanoid then
             humanoid.HipHeight = value
         end
     end
 )
 
-y += 46
+y = y + 46
 
 -- Infinite Jump
+
 local InfiniteJumpButton = createToggle(
     "Infinite Jump",
     PlayerContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 InfiniteJumpButton.MouseButton1Click:Connect(function()
-    State.Player.InfiniteJump = not State.Player.InfiniteJump
-    setButtonState(
+    State.Player.InfiniteJump =
+        not State.Player.InfiniteJump
+
+    setToggleVisual(
         InfiniteJumpButton,
         "Infinite Jump",
         State.Player.InfiniteJump
@@ -635,8 +798,9 @@ InfiniteJumpButton.MouseButton1Click:Connect(function()
                 end
 
                 local humanoid = getHumanoid()
+
                 if humanoid then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    humanoid.Jump = true
                 end
             end
         )
@@ -646,36 +810,167 @@ InfiniteJumpButton.MouseButton1Click:Connect(function()
 end)
 
 -- Reset
+
 local ResetButton = createAction(
     "Reset Character",
     PlayerContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 ResetButton.MouseButton1Click:Connect(function()
     local humanoid = getHumanoid()
+
     if humanoid then
         humanoid.Health = 0
     end
 end)
 
+-- God Mode
+
+local GodModeButton = createToggle(
+    "Local God Mode",
+    PlayerContainer,
+    y
+)
+
+y = y + 46
+
+local function applyGodMode()
+    if not State.Player.GodMode then
+        return
+    end
+
+    local humanoid = getHumanoid()
+
+    if not humanoid then
+        return
+    end
+
+    humanoid:SetStateEnabled(
+        Enum.HumanoidStateType.Dead,
+        false
+    )
+
+    humanoid.Health = humanoid.MaxHealth
+end
+
+GodModeButton.MouseButton1Click:Connect(function()
+    State.Player.GodMode =
+        not State.Player.GodMode
+
+    setToggleVisual(
+        GodModeButton,
+        "Local God Mode",
+        State.Player.GodMode
+    )
+
+    if State.Player.GodMode then
+        connect(
+            "GodMode",
+            RunService.Heartbeat,
+            function()
+                applyGodMode()
+            end
+        )
+    else
+        disconnect("GodMode")
+
+        local humanoid = getHumanoid()
+
+        if humanoid then
+            humanoid:SetStateEnabled(
+                Enum.HumanoidStateType.Dead,
+                true
+            )
+        end
+    end
+end)
+
+-- Invisible
+
+local InvisibleButton = createToggle(
+    "Invisible",
+    PlayerContainer,
+    y
+)
+
+local InvisibleConnection = nil
+
+local function setTransparency(character, value)
+    if not character then
+        return
+    end
+
+    for _, object in ipairs(character:GetDescendants()) do
+        if object:IsA("BasePart")
+            or object:IsA("Decal")
+            or object:IsA("Texture") then
+
+            object.LocalTransparencyModifier = value
+        end
+    end
+end
+
+local function setInvisible(enabled)
+    if InvisibleConnection then
+        InvisibleConnection:Disconnect()
+        InvisibleConnection = nil
+    end
+
+    local character = getCharacter()
+
+    if not character then
+        return
+    end
+
+    if enabled then
+        setTransparency(character, 1)
+
+        InvisibleConnection =
+            character.DescendantAdded:Connect(function(object)
+                if object:IsA("BasePart")
+                    or object:IsA("Decal")
+                    or object:IsA("Texture") then
+
+                    object.LocalTransparencyModifier = 1
+                end
+            end)
+    else
+        setTransparency(character, 0)
+    end
+end
+
+InvisibleButton.MouseButton1Click:Connect(function()
+    State.Player.Invisible =
+        not State.Player.Invisible
+
+    setToggleVisual(
+        InvisibleButton,
+        "Invisible",
+        State.Player.Invisible
+    )
+
+    setInvisible(State.Player.Invisible)
+end)
+
 --==================================================
--- MOVEMENT
+-- MOVEMENT TAB
 --==================================================
 
 local MovementContainer = Containers.Movement
 y = 10
 
 -- Noclip
+
 local NoclipButton = createToggle(
     "Noclip",
     MovementContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 local NoclipOriginal = {}
 
@@ -686,22 +981,24 @@ local function enableNoclip()
         "Noclip",
         RunService.Stepped,
         function()
-            if not State.Player.Noclip then
+            if not State.Movement.Noclip then
                 return
             end
 
             local character = getCharacter()
+
             if not character then
                 return
             end
 
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    if NoclipOriginal[part] == nil then
-                        NoclipOriginal[part] = part.CanCollide
+            for _, object in ipairs(character:GetDescendants()) do
+                if object:IsA("BasePart") then
+                    if NoclipOriginal[object] == nil then
+                        NoclipOriginal[object] =
+                            object.CanCollide
                     end
 
-                    part.CanCollide = false
+                    object.CanCollide = false
                 end
             end
         end
@@ -711,9 +1008,9 @@ end
 local function disableNoclip()
     disconnect("Noclip")
 
-    for part, original in pairs(NoclipOriginal) do
-        if part and part.Parent then
-            part.CanCollide = original
+    for object, originalValue in pairs(NoclipOriginal) do
+        if object and object.Parent then
+            object.CanCollide = originalValue
         end
     end
 
@@ -721,15 +1018,16 @@ local function disableNoclip()
 end
 
 NoclipButton.MouseButton1Click:Connect(function()
-    State.Player.Noclip = not State.Player.Noclip
+    State.Movement.Noclip =
+        not State.Movement.Noclip
 
-    setButtonState(
+    setToggleVisual(
         NoclipButton,
         "Noclip",
-        State.Player.Noclip
+        State.Movement.Noclip
     )
 
-    if State.Player.Noclip then
+    if State.Movement.Noclip then
         enableNoclip()
     else
         disableNoclip()
@@ -737,13 +1035,14 @@ NoclipButton.MouseButton1Click:Connect(function()
 end)
 
 -- Fly
+
 local FlyButton = createToggle(
     "Fly",
     MovementContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 createSlider(
     "Fly Speed",
@@ -758,24 +1057,27 @@ createSlider(
     end
 )
 
-y += 46
+y = y + 46
 
-local FlyVelocity
-local FlyAttachment
+local FlyVelocity = nil
+local FlyAttachment = nil
 
 local function disableFly()
     disconnect("Fly")
 
-    safeDestroy(FlyVelocity)
-    safeDestroy(FlyAttachment)
+    destroy(FlyVelocity)
+    destroy(FlyAttachment)
 
     FlyVelocity = nil
     FlyAttachment = nil
 
     local humanoid = getHumanoid()
+
     if humanoid then
         humanoid.PlatformStand = false
-        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        humanoid:ChangeState(
+            Enum.HumanoidStateType.GettingUp
+        )
     end
 end
 
@@ -784,8 +1086,17 @@ local function enableFly()
     local humanoid = getHumanoid()
 
     if not root or not humanoid then
+        State.Movement.Fly = false
+        setToggleVisual(
+            FlyButton,
+            "Fly",
+            false
+        )
         return
     end
+
+    destroy(FlyVelocity)
+    destroy(FlyAttachment)
 
     FlyAttachment = Instance.new("Attachment")
     FlyAttachment.Name = "DaryllFlyAttachment"
@@ -794,7 +1105,8 @@ local function enableFly()
     FlyVelocity = Instance.new("LinearVelocity")
     FlyVelocity.Name = "DaryllFlyVelocity"
     FlyVelocity.Attachment0 = FlyAttachment
-    FlyVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+    FlyVelocity.RelativeTo =
+        Enum.ActuatorRelativeTo.World
     FlyVelocity.MaxForce = math.huge
     FlyVelocity.VectorVelocity = Vector3.zero
     FlyVelocity.Parent = root
@@ -805,63 +1117,76 @@ local function enableFly()
         "Fly",
         RunService.RenderStepped,
         function()
-            if not State.Player.Fly then
+            if not State.Movement.Fly then
                 return
             end
 
-            local currentRoot = getRoot()
-            local currentHumanoid = getHumanoid()
-
-            if not currentRoot or not currentHumanoid then
+            if not FlyVelocity
+                or not FlyVelocity.Parent then
                 return
             end
 
-            local move = Vector3.zero
+            local moveDirection = Vector3.zero
 
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                move += Camera.CFrame.LookVector
+                moveDirection =
+                    moveDirection +
+                    Camera.CFrame.LookVector
             end
 
             if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                move -= Camera.CFrame.LookVector
+                moveDirection =
+                    moveDirection -
+                    Camera.CFrame.LookVector
             end
 
             if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                move += Camera.CFrame.RightVector
+                moveDirection =
+                    moveDirection +
+                    Camera.CFrame.RightVector
             end
 
             if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                move -= Camera.CFrame.RightVector
+                moveDirection =
+                    moveDirection -
+                    Camera.CFrame.RightVector
             end
 
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                move += Vector3.new(0, 1, 0)
+                moveDirection =
+                    moveDirection +
+                    Vector3.new(0, 1, 0)
             end
 
             if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-                move -= Vector3.new(0, 1, 0)
+                moveDirection =
+                    moveDirection -
+                    Vector3.new(0, 1, 0)
             end
 
-            if move.Magnitude > 0 then
-                move = move.Unit
+            if moveDirection.Magnitude > 0 then
+                moveDirection =
+                    moveDirection.Unit
             end
 
             FlyVelocity.VectorVelocity =
-                move * (State.Movement.FlySpeed * 25)
+                moveDirection *
+                (State.Movement.FlySpeed * 25)
         end
     )
 end
 
 FlyButton.MouseButton1Click:Connect(function()
-    State.Player.Fly = not State.Player.Fly
+    State.Movement.Fly =
+        not State.Movement.Fly
 
-    setButtonState(
+    setToggleVisual(
         FlyButton,
         "Fly",
-        State.Player.Fly
+        State.Movement.Fly
     )
 
-    if State.Player.Fly then
+    if State.Movement.Fly then
         enableFly()
     else
         disableFly()
@@ -869,59 +1194,76 @@ FlyButton.MouseButton1Click:Connect(function()
 end)
 
 -- Click TP
+
 local ClickTPButton = createToggle(
     "Click TP",
     MovementContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 ClickTPButton.MouseButton1Click:Connect(function()
-    State.Player.ClickTP = not State.Player.ClickTP
+    State.Movement.ClickTP =
+        not State.Movement.ClickTP
 
-    setButtonState(
+    setToggleVisual(
         ClickTPButton,
         "Click TP",
-        State.Player.ClickTP
+        State.Movement.ClickTP
     )
 
-    if State.Player.ClickTP then
+    if State.Movement.ClickTP then
         connect(
             "ClickTP",
             UserInputService.InputBegan,
             function(input, processed)
-                if processed or not State.Player.ClickTP then
+                if processed then
                     return
                 end
 
-                local valid =
-                    input.UserInputType == Enum.UserInputType.MouseButton1
-                    and UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-
-                if not valid then
+                if not State.Movement.ClickTP then
                     return
                 end
 
-                local mousePos = input.Position
-                local ray = Camera:ScreenPointToRay(
-                    mousePos.X,
-                    mousePos.Y
-                )
+                if input.UserInputType ~=
+                    Enum.UserInputType.MouseButton1 then
+                    return
+                end
 
-                local result = workspace:Raycast(
-                    ray.Origin,
-                    ray.Direction * 2000
-                )
+                if not UserInputService:IsKeyDown(
+                    Enum.KeyCode.LeftControl
+                ) then
+                    return
+                end
 
-                if result then
-                    local character = getCharacter()
+                local mousePosition =
+                    input.Position
 
-                    if character then
-                        character:MoveTo(
-                            result.Position + Vector3.new(0, 3, 0)
-                        )
-                    end
+                local ray =
+                    Camera:ScreenPointToRay(
+                        mousePosition.X,
+                        mousePosition.Y
+                    )
+
+                local result =
+                    workspace:Raycast(
+                        ray.Origin,
+                        ray.Direction * 2000
+                    )
+
+                if not result then
+                    return
+                end
+
+                local character =
+                    getCharacter()
+
+                if character then
+                    character:MoveTo(
+                        result.Position +
+                        Vector3.new(0, 3, 0)
+                    )
                 end
             end
         )
@@ -930,8 +1272,9 @@ ClickTPButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- Camera distance
-local CameraDistanceSlider = createSlider(
+-- Camera Distance
+
+createSlider(
     "Camera Distance",
     MovementContainer,
     y,
@@ -949,21 +1292,20 @@ local CameraDistanceSlider = createSlider(
     end
 )
 
-y += 46
+y = y + 46
 
--- Camera noclip
+-- Camera Noclip
+
 local CameraNoclipButton = createToggle(
     "Camera Noclip",
     MovementContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 local function disableCameraNoclip()
     disconnect("CameraNoclip")
-
-    State.Movement.CameraNoclip = false
 
     LocalPlayer.CameraMinZoomDistance =
         Original.CameraMinZoom
@@ -976,7 +1318,7 @@ CameraNoclipButton.MouseButton1Click:Connect(function()
     State.Movement.CameraNoclip =
         not State.Movement.CameraNoclip
 
-    setButtonState(
+    setToggleVisual(
         CameraNoclipButton,
         "Camera Noclip",
         State.Movement.CameraNoclip
@@ -997,13 +1339,17 @@ CameraNoclipButton.MouseButton1Click:Connect(function()
                     return
                 end
 
-                local focus = Camera.Focus
-                local look = Camera.CFrame.LookVector
+                local focusPosition =
+                    Camera.Focus.Position
+
+                local lookVector =
+                    Camera.CFrame.LookVector
 
                 Camera.CFrame = CFrame.new(
-                    focus.Position -
-                        look * State.Movement.CameraDistance,
-                    focus.Position
+                    focusPosition -
+                    lookVector *
+                    State.Movement.CameraDistance,
+                    focusPosition
                 )
             end
         )
@@ -1013,25 +1359,27 @@ CameraNoclipButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- ANTI
+-- ANTI TAB
 --==================================================
 
 local AntiContainer = Containers.Anti
 y = 10
 
 -- Anti Ragdoll
+
 local AntiRagdollButton = createToggle(
     "Anti Ragdoll",
     AntiContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 AntiRagdollButton.MouseButton1Click:Connect(function()
-    State.Anti.AntiRagdoll = not State.Anti.AntiRagdoll
+    State.Anti.AntiRagdoll =
+        not State.Anti.AntiRagdoll
 
-    setButtonState(
+    setToggleVisual(
         AntiRagdollButton,
         "Anti Ragdoll",
         State.Anti.AntiRagdoll
@@ -1044,26 +1392,31 @@ AntiRagdollButton.MouseButton1Click:Connect(function()
             function()
                 local humanoid = getHumanoid()
 
-                if humanoid then
-                    humanoid:SetStateEnabled(
-                        Enum.HumanoidStateType.Ragdoll,
-                        false
+                if not humanoid then
+                    return
+                end
+
+                humanoid:SetStateEnabled(
+                    Enum.HumanoidStateType.Ragdoll,
+                    false
+                )
+
+                humanoid:SetStateEnabled(
+                    Enum.HumanoidStateType.FallingDown,
+                    false
+                )
+
+                local state =
+                    humanoid:GetState()
+
+                if state ==
+                    Enum.HumanoidStateType.Ragdoll
+                    or state ==
+                    Enum.HumanoidStateType.FallingDown then
+
+                    humanoid:ChangeState(
+                        Enum.HumanoidStateType.GettingUp
                     )
-
-                    humanoid:SetStateEnabled(
-                        Enum.HumanoidStateType.FallingDown,
-                        false
-                    )
-
-                    local state = humanoid:GetState()
-
-                    if state == Enum.HumanoidStateType.Ragdoll
-                        or state == Enum.HumanoidStateType.FallingDown then
-
-                        humanoid:ChangeState(
-                            Enum.HumanoidStateType.GettingUp
-                        )
-                    end
                 end
             end
         )
@@ -1087,19 +1440,20 @@ AntiRagdollButton.MouseButton1Click:Connect(function()
 end)
 
 -- Anti Knockback
+
 local AntiKnockbackButton = createToggle(
     "Anti Knockback",
     AntiContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 AntiKnockbackButton.MouseButton1Click:Connect(function()
     State.Anti.AntiKnockback =
         not State.Anti.AntiKnockback
 
-    setButtonState(
+    setToggleVisual(
         AntiKnockbackButton,
         "Anti Knockback",
         State.Anti.AntiKnockback
@@ -1112,15 +1466,19 @@ AntiKnockbackButton.MouseButton1Click:Connect(function()
             function()
                 local root = getRoot()
 
-                if root then
-                    local velocity = root.AssemblyLinearVelocity
+                if not root then
+                    return
+                end
 
-                    root.AssemblyLinearVelocity = Vector3.new(
+                local velocity =
+                    root.AssemblyLinearVelocity
+
+                root.AssemblyLinearVelocity =
+                    Vector3.new(
                         0,
                         velocity.Y,
                         0
                     )
-                end
             end
         )
     else
@@ -1129,19 +1487,20 @@ AntiKnockbackButton.MouseButton1Click:Connect(function()
 end)
 
 -- Anti Sit
+
 local AntiSitButton = createToggle(
     "Anti Sit",
     AntiContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 AntiSitButton.MouseButton1Click:Connect(function()
     State.Anti.AntiSit =
         not State.Anti.AntiSit
 
-    setButtonState(
+    setToggleVisual(
         AntiSitButton,
         "Anti Sit",
         State.Anti.AntiSit
@@ -1154,15 +1513,17 @@ AntiSitButton.MouseButton1Click:Connect(function()
             function()
                 local humanoid = getHumanoid()
 
-                if humanoid then
-                    humanoid:SetStateEnabled(
-                        Enum.HumanoidStateType.Seated,
-                        false
-                    )
+                if not humanoid then
+                    return
+                end
 
-                    if humanoid.Sit then
-                        humanoid.Sit = false
-                    end
+                humanoid:SetStateEnabled(
+                    Enum.HumanoidStateType.Seated,
+                    false
+                )
+
+                if humanoid.Sit then
+                    humanoid.Sit = false
                 end
             end
         )
@@ -1181,19 +1542,20 @@ AntiSitButton.MouseButton1Click:Connect(function()
 end)
 
 -- Anti Slow
+
 local AntiSlowButton = createToggle(
     "Anti Slow",
     AntiContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 AntiSlowButton.MouseButton1Click:Connect(function()
     State.Anti.AntiSlow =
         not State.Anti.AntiSlow
 
-    setButtonState(
+    setToggleVisual(
         AntiSlowButton,
         "Anti Slow",
         State.Anti.AntiSlow
@@ -1207,7 +1569,8 @@ AntiSlowButton.MouseButton1Click:Connect(function()
                 local humanoid = getHumanoid()
 
                 if humanoid
-                    and humanoid.WalkSpeed < State.Player.WalkSpeed then
+                    and humanoid.WalkSpeed <
+                    State.Player.WalkSpeed then
 
                     humanoid.WalkSpeed =
                         State.Player.WalkSpeed
@@ -1220,19 +1583,20 @@ AntiSlowButton.MouseButton1Click:Connect(function()
 end)
 
 -- Anti AFK
+
 local AntiAFKButton = createToggle(
     "Anti-AFK",
     AntiContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 AntiAFKButton.MouseButton1Click:Connect(function()
     State.Anti.AntiAFK =
         not State.Anti.AntiAFK
 
-    setButtonState(
+    setToggleVisual(
         AntiAFKButton,
         "Anti-AFK",
         State.Anti.AntiAFK
@@ -1262,164 +1626,33 @@ AntiAFKButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- GOD MODE
---==================================================
-
-local GodModeButton = createToggle(
-    "Local God Mode",
-    PlayerContainer,
-    y
-)
-
-GodModeButton.Parent = PlayerContainer
-
---==================================================
--- GOD MODE LOGIC
---==================================================
-
-local function applyGodMode(character)
-    if not State.Player.GodMode then
-        return
-    end
-
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-    if not humanoid then
-        return
-    end
-
-    humanoid:SetStateEnabled(
-        Enum.HumanoidStateType.Dead,
-        false
-    )
-
-    humanoid.Health = humanoid.MaxHealth
-end
-
-GodModeButton.MouseButton1Click:Connect(function()
-    State.Player.GodMode =
-        not State.Player.GodMode
-
-    setButtonState(
-        GodModeButton,
-        "Local God Mode",
-        State.Player.GodMode
-    )
-
-    if State.Player.GodMode then
-        connect(
-            "GodMode",
-            RunService.Heartbeat,
-            function()
-                local humanoid = getHumanoid()
-
-                if humanoid then
-                    humanoid:SetStateEnabled(
-                        Enum.HumanoidStateType.Dead,
-                        false
-                    )
-
-                    humanoid.Health =
-                        humanoid.MaxHealth
-                end
-            end
-        )
-    else
-        disconnect("GodMode")
-
-        local humanoid = getHumanoid()
-
-        if humanoid then
-            humanoid:SetStateEnabled(
-                Enum.HumanoidStateType.Dead,
-                true
-            )
-        end
-    end
-end)
-
---==================================================
--- INVISIBLE
---==================================================
-
-local InvisibleButton = createToggle(
-    "Invisible",
-    PlayerContainer,
-    y + 46
-)
-
-local InvisibleConnection
-
-local function setCharacterTransparency(character, transparency)
-    for _, obj in ipairs(character:GetDescendants()) do
-        if obj:IsA("BasePart")
-            or obj:IsA("Decal")
-            or obj:IsA("Texture") then
-
-            obj.LocalTransparencyModifier = transparency
-        end
-    end
-end
-
-local function setInvisible(enabled)
-    local character = getCharacter()
-
-    if InvisibleConnection then
-        InvisibleConnection:Disconnect()
-        InvisibleConnection = nil
-    end
-
-    if not character then
-        return
-    end
-
-    if enabled then
-        setCharacterTransparency(character, 1)
-
-        InvisibleConnection =
-            character.DescendantAdded:Connect(function(obj)
-                if obj:IsA("BasePart")
-                    or obj:IsA("Decal")
-                    or obj:IsA("Texture") then
-
-                    obj.LocalTransparencyModifier = 1
-                end
-            end)
-    else
-        setCharacterTransparency(character, 0)
-    end
-end
-
-InvisibleButton.MouseButton1Click:Connect(function()
-    State.Player.Invisible =
-        not State.Player.Invisible
-
-    setButtonState(
-        InvisibleButton,
-        "Invisible",
-        State.Player.Invisible
-    )
-
-    setInvisible(State.Player.Invisible)
-end)
-
---==================================================
--- VISUAL
+-- VISUAL TAB
 --==================================================
 
 local VisualContainer = Containers.Visual
 y = 10
 
 -- X-Ray
+
 local XRayButton = createToggle(
     "X-Ray",
     VisualContainer,
     y
 )
 
-y += 46
+y = y + 46
 
-local XRayObjects = {}
+local XRayHighlights = {}
+local XRayCharacterConnections = {}
+
+local function removeXRay(player)
+    local highlight = XRayHighlights[player]
+
+    if highlight then
+        destroy(highlight)
+        XRayHighlights[player] = nil
+    end
+end
 
 local function createXRay(player)
     if player == LocalPlayer then
@@ -1432,35 +1665,67 @@ local function createXRay(player)
         return
     end
 
-    local highlight = XRayObjects[player]
+    removeXRay(player)
 
-    if highlight and highlight.Parent then
-        return
-    end
+    local highlight = Instance.new("Highlight")
 
-    highlight = Instance.new("Highlight")
     highlight.Name = "DaryllXRay"
     highlight.Adornee = character
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.FillColor = Color3.fromRGB(255, 60, 60)
+    highlight.DepthMode =
+        Enum.HighlightDepthMode.AlwaysOnTop
+
+    highlight.FillColor =
+        Color3.fromRGB(255, 60, 60)
+
     highlight.FillTransparency = 0.45
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+
+    highlight.OutlineColor =
+        Color3.fromRGB(255, 255, 255)
+
     highlight.OutlineTransparency = 0
+
     highlight.Parent = ScreenGui
 
-    XRayObjects[player] = highlight
+    XRayHighlights[player] = highlight
 end
 
-local function removeXRay(player)
-    if XRayObjects[player] then
-        safeDestroy(XRayObjects[player])
-        XRayObjects[player] = nil
+local function removeXRayConnection(player)
+    local connection =
+        XRayCharacterConnections[player]
+
+    if connection then
+        connection:Disconnect()
+        XRayCharacterConnections[player] = nil
     end
 end
 
 local function clearXRay()
-    for player in pairs(XRayObjects) do
+    for player in pairs(XRayHighlights) do
         removeXRay(player)
+    end
+
+    for player in pairs(XRayCharacterConnections) do
+        removeXRayConnection(player)
+    end
+end
+
+local function watchXRayPlayer(player)
+    if player == LocalPlayer then
+        return
+    end
+
+    removeXRayConnection(player)
+
+    XRayCharacterConnections[player] =
+        player.CharacterAdded:Connect(function()
+            if State.Visual.XRay then
+                task.wait(0.2)
+                createXRay(player)
+            end
+        end)
+
+    if State.Visual.XRay then
+        createXRay(player)
     end
 end
 
@@ -1468,69 +1733,47 @@ XRayButton.MouseButton1Click:Connect(function()
     State.Visual.XRay =
         not State.Visual.XRay
 
-    setButtonState(
+    setToggleVisual(
         XRayButton,
         "X-Ray",
         State.Visual.XRay
     )
 
-    disconnect("XRayCharacters")
-
     if State.Visual.XRay then
         for _, player in ipairs(Players:GetPlayers()) do
-            createXRay(player)
-        end
-
-        connect(
-            "XRayCharacters",
-            Players.PlayerAdded,
-            function(player)
-                player.CharacterAdded:Connect(function()
-                    if State.Visual.XRay then
-                        task.wait(0.2)
-                        createXRay(player)
-                    end
-                end)
-            end
-        )
-
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                player.CharacterAdded:Connect(function()
-                    if State.Visual.XRay then
-                        task.wait(0.2)
-                        createXRay(player)
-                    end
-                end)
-            end
+            watchXRayPlayer(player)
         end
     else
         clearXRay()
     end
 end)
 
-Players.PlayerRemoving:Connect(function(player)
-    removeXRay(player)
-
-    if State.Players.Selected == player then
-        State.Players.Selected = nil
+Players.PlayerAdded:Connect(function(player)
+    if State.Visual.XRay then
+        watchXRayPlayer(player)
     end
 end)
 
+Players.PlayerRemoving:Connect(function(player)
+    removeXRay(player)
+    removeXRayConnection(player)
+end)
+
 -- Fullbright
+
 local FullbrightButton = createToggle(
     "Fullbright",
     VisualContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 FullbrightButton.MouseButton1Click:Connect(function()
     State.Visual.Fullbright =
         not State.Visual.Fullbright
 
-    setButtonState(
+    setToggleVisual(
         FullbrightButton,
         "Fullbright",
         State.Visual.Fullbright
@@ -1560,19 +1803,20 @@ FullbrightButton.MouseButton1Click:Connect(function()
 end)
 
 -- No Fog
+
 local NoFogButton = createToggle(
     "No Fog",
     VisualContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 NoFogButton.MouseButton1Click:Connect(function()
     State.Visual.NoFog =
         not State.Visual.NoFog
 
-    setButtonState(
+    setToggleVisual(
         NoFogButton,
         "No Fog",
         State.Visual.NoFog
@@ -1599,7 +1843,6 @@ NoFogButton.MouseButton1Click:Connect(function()
 end)
 
 -- FOV
-y += 0
 
 createSlider(
     "Camera FOV",
@@ -1615,9 +1858,10 @@ createSlider(
     end
 )
 
-y += 46
+y = y + 46
 
 -- Time
+
 createSlider(
     "Time of Day",
     VisualContainer,
@@ -1632,16 +1876,17 @@ createSlider(
     end
 )
 
-y += 46
+y = y + 46
 
 -- Light
+
 local LightButton = createToggle(
     "Light",
     VisualContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 local function updateLight()
     local root = getRoot()
@@ -1650,12 +1895,14 @@ local function updateLight()
         return
     end
 
-    local light = root:FindFirstChild("DaryllLight")
+    local light =
+        root:FindFirstChild("DaryllLight")
 
     if State.Visual.Light then
         if not light then
             light = Instance.new("PointLight")
             light.Name = "DaryllLight"
+            light.Shadows = false
             light.Parent = root
         end
 
@@ -1664,11 +1911,9 @@ local function updateLight()
 
         light.Brightness =
             State.Visual.LightBrightness
-
-        light.Shadows = false
     else
         if light then
-            light:Destroy()
+            destroy(light)
         end
     end
 end
@@ -1677,7 +1922,7 @@ LightButton.MouseButton1Click:Connect(function()
     State.Visual.Light =
         not State.Visual.Light
 
-    setButtonState(
+    setToggleVisual(
         LightButton,
         "Light",
         State.Visual.Light
@@ -1700,7 +1945,7 @@ createSlider(
     end
 )
 
-y += 46
+y = y + 46
 
 createSlider(
     "Light Strength",
@@ -1717,27 +1962,27 @@ createSlider(
 )
 
 --==================================================
--- TELEPORT
+-- TELEPORT TAB
 --==================================================
 
 local TeleportContainer = Containers.Teleport
 y = 10
 
-local SaveTeleportButton = createAction(
+local SavePositionButton = createAction(
     "Save Position",
     TeleportContainer,
     y
 )
 
-y += 46
+y = y + 46
 
-local TeleportButton = createAction(
+local TeleportSavedButton = createAction(
     "Teleport to Saved",
     TeleportContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 local AutoTeleportButton = createToggle(
     "Auto Teleport",
@@ -1745,31 +1990,43 @@ local AutoTeleportButton = createToggle(
     y
 )
 
-y += 46
+y = y + 46
 
-SaveTeleportButton.MouseButton1Click:Connect(function()
+SavePositionButton.MouseButton1Click:Connect(function()
     local root = getRoot()
 
-    if root then
-        State.Teleport.Point = root.CFrame
-
-        SaveTeleportButton.Text = "Position Saved"
-
-        task.delay(1.2, function()
-            if SaveTeleportButton.Parent then
-                SaveTeleportButton.Text = "Save Position"
-            end
-        end)
+    if not root then
+        return
     end
+
+    State.Teleport.Point = root.CFrame
+
+    SavePositionButton.Text =
+        "Position Saved"
+
+    SavePositionButton.TextColor3 =
+        Color3.fromRGB(60, 210, 80)
+
+    task.delay(1.2, function()
+        if SavePositionButton.Parent then
+            SavePositionButton.Text =
+                "Save Position"
+
+            SavePositionButton.TextColor3 =
+                Color3.fromRGB(255, 255, 255)
+        end
+    end)
 end)
 
-TeleportButton.MouseButton1Click:Connect(function()
+TeleportSavedButton.MouseButton1Click:Connect(function()
     if not State.Teleport.Point then
-        TeleportButton.Text = "No Position Saved"
+        TeleportSavedButton.Text =
+            "No Saved Position"
 
         task.delay(1.2, function()
-            if TeleportButton.Parent then
-                TeleportButton.Text = "Teleport to Saved"
+            if TeleportSavedButton.Parent then
+                TeleportSavedButton.Text =
+                    "Teleport to Saved"
             end
         end)
 
@@ -1779,7 +2036,8 @@ TeleportButton.MouseButton1Click:Connect(function()
     local root = getRoot()
 
     if root then
-        root.CFrame = State.Teleport.Point
+        root.CFrame =
+            State.Teleport.Point
     end
 end)
 
@@ -1787,7 +2045,7 @@ AutoTeleportButton.MouseButton1Click:Connect(function()
     State.Teleport.AutoTeleport =
         not State.Teleport.AutoTeleport
 
-    setButtonState(
+    setToggleVisual(
         AutoTeleportButton,
         "Auto Teleport",
         State.Teleport.AutoTeleport
@@ -1805,7 +2063,9 @@ AutoTeleportButton.MouseButton1Click:Connect(function()
                     end
                 end
 
-                task.wait(State.Teleport.Delay)
+                task.wait(
+                    State.Teleport.Delay
+                )
             end
         end)
     end
@@ -1825,49 +2085,87 @@ createSlider(
 )
 
 --==================================================
--- PLAYERS
+-- PLAYERS TAB
 --==================================================
 
 local PlayersContainer = Containers.Players
 y = 10
 
 local PlayerListFrame = Instance.new("Frame")
-PlayerListFrame.Size = UDim2.new(0.92, 0, 0, 190)
-PlayerListFrame.Position = UDim2.new(0.04, 0, 0, y)
-PlayerListFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 26)
+
+PlayerListFrame.Size =
+    UDim2.new(0.92, 0, 0, 185)
+
+PlayerListFrame.Position =
+    UDim2.new(0.04, 0, 0, y)
+
+PlayerListFrame.BackgroundColor3 =
+    Color3.fromRGB(24, 24, 26)
+
 PlayerListFrame.BorderSizePixel = 0
 PlayerListFrame.Parent = PlayersContainer
 
-Instance.new("UICorner", PlayerListFrame).CornerRadius = UDim.new(0, 6)
+local PlayerListCorner = Instance.new("UICorner")
+PlayerListCorner.CornerRadius =
+    UDim.new(0, 6)
+PlayerListCorner.Parent =
+    PlayerListFrame
 
 local PlayerListStroke = Instance.new("UIStroke")
-PlayerListStroke.Color = Color3.fromRGB(45, 45, 48)
-PlayerListStroke.Parent = PlayerListFrame
+PlayerListStroke.Color =
+    Color3.fromRGB(45, 45, 48)
+PlayerListStroke.Parent =
+    PlayerListFrame
 
 local PlayerList = Instance.new("ScrollingFrame")
-PlayerList.Size = UDim2.new(1, 0, 1, 0)
+
+PlayerList.Size =
+    UDim2.new(1, 0, 1, 0)
+
 PlayerList.BackgroundTransparency = 1
 PlayerList.BorderSizePixel = 0
 PlayerList.ScrollBarThickness = 2
-PlayerList.Parent = PlayerListFrame
+PlayerList.CanvasSize =
+    UDim2.new(0, 0, 0, 0)
 
-y += 200
+PlayerList.Parent =
+    PlayerListFrame
+
+y = y + 195
+
+local rebuildingPlayers = false
 
 local function rebuildPlayerList()
-    for _, child in ipairs(PlayerList:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
+    if rebuildingPlayers then
+        return
+    end
+
+    rebuildingPlayers = true
+
+    for _, object in ipairs(
+        PlayerList:GetChildren()
+    ) do
+        if object:IsA("TextButton") then
+            object:Destroy()
         end
     end
 
-    local offset = 6
+    local offset = 5
 
     local noneButton = Instance.new("TextButton")
-    noneButton.Size = UDim2.new(0.94, 0, 0, 30)
-    noneButton.Position = UDim2.new(0.03, 0, 0, offset)
-    noneButton.BackgroundColor3 =
-        Color3.fromRGB(32, 32, 35)
 
+    noneButton.Size =
+        UDim2.new(0.94, 0, 0, 30)
+
+    noneButton.Position =
+        UDim2.new(0.03, 0, 0, offset)
+
+    noneButton.BackgroundColor3 =
+        State.Players.Selected == nil
+        and Color3.fromRGB(50, 50, 55)
+        or Color3.fromRGB(32, 32, 35)
+
+    noneButton.BorderSizePixel = 0
     noneButton.Text = "None"
     noneButton.TextColor3 =
         Color3.fromRGB(239, 68, 68)
@@ -1876,28 +2174,38 @@ local function rebuildPlayerList()
     noneButton.Font = Enum.Font.GothamBold
     noneButton.Parent = PlayerList
 
-    Instance.new("UICorner", noneButton).CornerRadius =
+    local noneCorner = Instance.new("UICorner")
+    noneCorner.CornerRadius =
         UDim.new(0, 4)
+    noneCorner.Parent = noneButton
 
     noneButton.MouseButton1Click:Connect(function()
         State.Players.Selected = nil
         rebuildPlayerList()
     end)
 
-    offset += 35
+    offset = offset + 35
 
-    for _, player in ipairs(Players:GetPlayers()) do
+    for _, player in ipairs(
+        Players:GetPlayers()
+    ) do
         if player ~= LocalPlayer then
             local button = Instance.new("TextButton")
-            button.Size = UDim2.new(0.94, 0, 0, 30)
-            button.Position = UDim2.new(0.03, 0, 0, offset)
+
+            button.Size =
+                UDim2.new(0.94, 0, 0, 30)
+
+            button.Position =
+                UDim2.new(0.03, 0, 0, offset)
 
             button.BackgroundColor3 =
                 State.Players.Selected == player
                 and Color3.fromRGB(50, 50, 55)
                 or Color3.fromRGB(32, 32, 35)
 
+            button.BorderSizePixel = 0
             button.Text = player.Name
+
             button.TextColor3 =
                 Color3.fromRGB(255, 255, 255)
 
@@ -1905,38 +2213,43 @@ local function rebuildPlayerList()
             button.Font = Enum.Font.GothamMedium
             button.Parent = PlayerList
 
-            Instance.new("UICorner", button).CornerRadius =
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius =
                 UDim.new(0, 4)
+            corner.Parent = button
 
             button.MouseButton1Click:Connect(function()
-                State.Players.Selected = player
+                State.Players.Selected =
+                    player
+
                 rebuildPlayerList()
             end)
 
-            offset += 35
+            offset = offset + 35
         end
     end
 
     PlayerList.CanvasSize =
         UDim2.new(0, 0, 0, offset + 5)
+
+    rebuildingPlayers = false
 end
 
 rebuildPlayerList()
 
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        if State.Visual.XRay then
-            task.wait(0.2)
-            createXRay(player)
-        end
-    end)
+Players.PlayerAdded:Connect(function()
+    rebuildPlayerList()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if State.Players.Selected == player then
+        State.Players.Selected = nil
+    end
 
     rebuildPlayerList()
 end)
 
-Players.PlayerRemoving:Connect(function()
-    rebuildPlayerList()
-end)
+-- Teleport Player
 
 local TeleportPlayerButton = createAction(
     "Teleport to Player",
@@ -1944,7 +2257,38 @@ local TeleportPlayerButton = createAction(
     y
 )
 
-y += 46
+y = y + 46
+
+TeleportPlayerButton.MouseButton1Click:Connect(function()
+    local target =
+        State.Players.Selected
+
+    if not target then
+        return
+    end
+
+    local targetCharacter =
+        target.Character
+
+    if not targetCharacter then
+        return
+    end
+
+    local targetRoot =
+        targetCharacter:FindFirstChild(
+            "HumanoidRootPart"
+        )
+
+    local root = getRoot()
+
+    if targetRoot and root then
+        root.CFrame =
+            targetRoot.CFrame *
+            CFrame.new(0, 0, 3)
+    end
+end)
+
+-- Spectate
 
 local SpectateButton = createToggle(
     "Spectate Player",
@@ -1952,43 +2296,24 @@ local SpectateButton = createToggle(
     y
 )
 
-y += 46
+y = y + 46
 
-TeleportPlayerButton.MouseButton1Click:Connect(function()
-    local target = State.Players.Selected
-
-    if not target or not target.Character then
-        return
-    end
-
-    local targetRoot =
-        target.Character:FindFirstChild("HumanoidRootPart")
-
-    local ownRoot = getRoot()
-
-    if targetRoot and ownRoot then
-        ownRoot.CFrame =
-            targetRoot.CFrame * CFrame.new(0, 0, 3)
-    end
-end)
-
-local function stopSpectate()
+local function stopSpectating()
     State.Players.Spectating = false
 
     local humanoid = getHumanoid()
 
     if humanoid then
-        Camera.CameraSubject = humanoid
+        Camera.CameraSubject =
+            humanoid
     end
 end
 
 SpectateButton.MouseButton1Click:Connect(function()
-    local target = State.Players.Selected
-
     if State.Players.Spectating then
-        stopSpectate()
+        stopSpectating()
 
-        setButtonState(
+        setToggleVisual(
             SpectateButton,
             "Spectate Player",
             false
@@ -1997,31 +2322,49 @@ SpectateButton.MouseButton1Click:Connect(function()
         return
     end
 
-    if not target or not target.Character then
+    local target =
+        State.Players.Selected
+
+    if not target then
+        return
+    end
+
+    local character =
+        target.Character
+
+    if not character then
         return
     end
 
     local humanoid =
-        target.Character:FindFirstChildOfClass("Humanoid")
-
-    if humanoid then
-        State.Players.Spectating = true
-        Camera.CameraSubject = humanoid
-
-        setButtonState(
-            SpectateButton,
-            "Spectate Player",
-            true
+        character:FindFirstChildOfClass(
+            "Humanoid"
         )
+
+    if not humanoid then
+        return
     end
+
+    State.Players.Spectating = true
+
+    Camera.CameraSubject =
+        humanoid
+
+    setToggleVisual(
+        SpectateButton,
+        "Spectate Player",
+        true
+    )
 end)
 
 --==================================================
--- UTILITY
+-- UTILITY TAB
 --==================================================
 
 local UtilityContainer = Containers.Utility
 y = 10
+
+-- Rejoin
 
 local RejoinButton = createAction(
     "Rejoin Server",
@@ -2029,7 +2372,7 @@ local RejoinButton = createAction(
     y
 )
 
-y += 46
+y = y + 46
 
 RejoinButton.MouseButton1Click:Connect(function()
     pcall(function()
@@ -2041,13 +2384,15 @@ RejoinButton.MouseButton1Click:Connect(function()
     end)
 end)
 
+-- Server Hop
+
 local ServerHopButton = createAction(
     "Server Hop",
     UtilityContainer,
     y
 )
 
-y += 46
+y = y + 46
 
 ServerHopButton.MouseButton1Click:Connect(function()
     pcall(function()
@@ -2058,9 +2403,7 @@ ServerHopButton.MouseButton1Click:Connect(function()
     end)
 end)
 
---==================================================
--- FPS BOOST
---==================================================
+-- FPS Booster
 
 local FPSBoostButton = createToggle(
     "FPS Booster",
@@ -2068,51 +2411,104 @@ local FPSBoostButton = createToggle(
     y
 )
 
-y += 46
+y = y + 46
 
 local FPSOriginal = {}
-local FPSDescendantConnection
+local FPSAddedConnection = nil
 
-local function saveFPSValue(instance, property)
-    FPSOriginal[instance] = FPSOriginal[instance] or {}
+local function saveProperty(
+    object,
+    property
+)
+    if not FPSOriginal[object] then
+        FPSOriginal[object] = {}
+    end
 
-    if FPSOriginal[instance][property] == nil then
-        local success, value = pcall(function()
-            return instance[property]
+    if FPSOriginal[object][property] ~= nil then
+        return
+    end
+
+    local success, value =
+        pcall(function()
+            return object[property]
         end)
 
-        if success then
-            FPSOriginal[instance][property] = value
-        end
+    if success then
+        FPSOriginal[object][property] =
+            value
     end
 end
 
-local function optimizeInstance(instance)
-    if instance:IsA("BasePart") then
-        saveFPSValue(instance, "Material")
-        instance.Material = Enum.Material.SmoothPlastic
+local function optimizeObject(object)
+    if object:IsA("BasePart") then
+        saveProperty(
+            object,
+            "Material"
+        )
 
-    elseif instance:IsA("ParticleEmitter")
-        or instance:IsA("Trail")
-        or instance:IsA("Beam")
-        or instance:IsA("Smoke")
-        or instance:IsA("Fire")
-        or instance:IsA("Sparkles") then
+        object.Material =
+            Enum.Material.SmoothPlastic
 
-        saveFPSValue(instance, "Enabled")
+    elseif object:IsA("ParticleEmitter")
+        or object:IsA("Trail")
+        or object:IsA("Beam")
+        or object:IsA("Smoke")
+        or object:IsA("Fire")
+        or object:IsA("Sparkles") then
+
+        saveProperty(
+            object,
+            "Enabled"
+        )
 
         pcall(function()
-            instance.Enabled = false
+            object.Enabled = false
         end)
     end
 end
 
-local function restoreFPS()
-    for instance, properties in pairs(FPSOriginal) do
-        if instance and instance.Parent then
-            for property, value in pairs(properties) do
+local function enableFPSBoost()
+    for _, object in ipairs(
+        workspace:GetDescendants()
+    ) do
+        optimizeObject(object)
+    end
+
+    if FPSAddedConnection then
+        FPSAddedConnection:Disconnect()
+    end
+
+    FPSAddedConnection =
+        workspace.DescendantAdded:Connect(
+            function(object)
+                if not State.Utility.FPSBoosted then
+                    return
+                end
+
+                task.defer(function()
+                    if object and object.Parent then
+                        optimizeObject(object)
+                    end
+                end)
+            end
+        )
+end
+
+local function disableFPSBoost()
+    if FPSAddedConnection then
+        FPSAddedConnection:Disconnect()
+        FPSAddedConnection = nil
+    end
+
+    for object, properties in pairs(
+        FPSOriginal
+    ) do
+        if object and object.Parent then
+            for property, value in pairs(
+                properties
+            ) do
                 pcall(function()
-                    instance[property] = value
+                    object[property] = value
                 end)
             end
         end
@@ -2121,34 +2517,11 @@ local function restoreFPS()
     table.clear(FPSOriginal)
 end
 
-local function enableFPSBoost()
-    for _, instance in ipairs(workspace:GetDescendants()) do
-        optimizeInstance(instance)
-    end
-
-    FPSDescendantConnection = workspace.DescendantAdded:Connect(function(instance)
-        if State.Utility.FPSBoosted then
-            task.defer(function()
-                optimizeInstance(instance)
-            end)
-        end
-    end)
-end
-
-local function disableFPSBoost()
-    if FPSDescendantConnection then
-        FPSDescendantConnection:Disconnect()
-        FPSDescendantConnection = nil
-    end
-
-    restoreFPS()
-end
-
 FPSBoostButton.MouseButton1Click:Connect(function()
     State.Utility.FPSBoosted =
         not State.Utility.FPSBoosted
 
-    setButtonState(
+    setToggleVisual(
         FPSBoostButton,
         "FPS Booster",
         State.Utility.FPSBoosted
@@ -2162,36 +2535,63 @@ FPSBoostButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- CHARACTER EVENTS
+-- CHARACTER HANDLING
 --==================================================
+
+local function applyCharacterSettings(character)
+    local humanoid =
+        character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if not humanoid then
+        return
+    end
+
+    humanoid.UseJumpPower = true
+
+    humanoid.WalkSpeed =
+        State.Player.WalkSpeed
+
+    humanoid.JumpPower =
+        State.Player.JumpPower
+
+    humanoid.HipHeight =
+        State.Player.HipHeight
+
+    if State.Player.GodMode then
+        humanoid:SetStateEnabled(
+            Enum.HumanoidStateType.Dead,
+            false
+        )
+    end
+end
 
 LocalPlayer.CharacterAdded:Connect(function(character)
     task.wait(0.25)
 
-    local humanoid = character:WaitForChild("Humanoid", 5)
+    local humanoid =
+        character:WaitForChild(
+            "Humanoid",
+            5
+        )
 
-    if humanoid then
-        captureCharacterDefaults(character)
-
-        humanoid.UseJumpPower = true
-        humanoid.WalkSpeed = State.Player.WalkSpeed
-        humanoid.JumpPower = State.Player.JumpPower
-        humanoid.HipHeight = State.Player.HipHeight
+    if not humanoid then
+        return
     end
 
-    if State.Player.Noclip then
+    captureCharacterDefaults(character)
+
+    applyCharacterSettings(character)
+
+    if State.Movement.Noclip then
         disableNoclip()
         enableNoclip()
     end
 
-    if State.Player.Fly then
+    if State.Movement.Fly then
         disableFly()
         enableFly()
-    end
-
-    if State.Player.GodMode then
-        task.wait(0.1)
-        applyGodMode(character)
     end
 
     if State.Player.Invisible then
@@ -2204,16 +2604,120 @@ LocalPlayer.CharacterAdded:Connect(function(character)
         updateLight()
     end
 
-    if State.Players.Spectating then
-        local target = State.Players.Selected
+    if State.Player.GodMode then
+        task.wait(0.1)
+        applyGodMode()
+    end
+end)
 
-        if target and target.Character then
-            local targetHumanoid =
-                target.Character:FindFirstChildOfClass("Humanoid")
+--==================================================
+-- CAMERA / RESPAWN SAFETY
+--==================================================
 
-            if targetHumanoid then
-                Camera.CameraSubject = targetHumanoid
+workspace:GetPropertyChangedSignal(
+    "CurrentCamera"
+):Connect(function()
+    local newCamera =
+        workspace.CurrentCamera
+
+    if newCamera then
+        Camera = newCamera
+
+        if State.Visual.FOV then
+            Camera.FieldOfView =
+                State.Visual.FOV
+        end
+
+        if State.Players.Spectating then
+            local target =
+                State.Players.Selected
+
+            if target
+                and target.Character then
+
+                local humanoid =
+                    target.Character:FindFirstChildOfClass(
+                        "Humanoid"
+                    )
+
+                if humanoid then
+                    Camera.CameraSubject =
+                        humanoid
+                end
             end
+        end
+    end
+end)
+
+--==================================================
+-- CLEANUP
+--==================================================
+
+ScreenGui.Destroying:Connect(function()
+    disconnectAll()
+
+    if InvisibleConnection then
+        InvisibleConnection:Disconnect()
+        InvisibleConnection = nil
+    end
+
+    if FPSAddedConnection then
+        FPSAddedConnection:Disconnect()
+        FPSAddedConnection = nil
+    end
+
+    clearXRay()
+
+    disableNoclip()
+    disableFly()
+    disableCameraNoclip()
+
+    if State.Utility.FPSBoosted then
+        disableFPSBoost()
+    end
+
+    workspace.Gravity =
+        Original.Gravity
+
+    Lighting.Ambient =
+        Original.Ambient
+
+    Lighting.OutdoorAmbient =
+        Original.OutdoorAmbient
+
+    Lighting.FogStart =
+        Original.FogStart
+
+    Lighting.FogEnd =
+        Original.FogEnd
+
+    Lighting.ClockTime =
+        Original.ClockTime
+
+    Camera.FieldOfView =
+        Original.FOV
+
+    LocalPlayer.CameraMinZoomDistance =
+        Original.CameraMinZoom
+
+    LocalPlayer.CameraMaxZoomDistance =
+        Original.CameraMaxZoom
+
+    if CharacterDefaultsCaptured then
+        local humanoid = getHumanoid()
+
+        if humanoid then
+            humanoid.WalkSpeed =
+                Original.WalkSpeed
+
+            humanoid.JumpPower =
+                Original.JumpPower
+
+            humanoid.UseJumpPower =
+                Original.UseJumpPower
+
+            humanoid.HipHeight =
+                Original.HipHeight
         end
     end
 end)
@@ -2223,9 +2727,23 @@ end)
 --==================================================
 
 if LocalPlayer.Character then
-    captureCharacterDefaults(LocalPlayer.Character)
+    captureCharacterDefaults(
+        LocalPlayer.Character
+    )
+
+    applyCharacterSettings(
+        LocalPlayer.Character
+    )
 end
+
+workspace.Gravity =
+    State.Player.Gravity
+
+Camera.FieldOfView =
+    State.Visual.FOV
 
 selectTab("Player")
 
-print("DaryllHub Improved loaded successfully.")
+print(
+    "DaryllHub Xeno - Reworked loaded successfully."
+)
