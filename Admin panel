@@ -86,7 +86,7 @@ local State = {
 }
 
 --==================================================
--- THEMES
+-- THEMES (ТОЛЬКО ОРИГИНАЛЬНЫЕ ЦВЕТА)
 --==================================================
 
 local Themes = {
@@ -289,7 +289,7 @@ local Original = {
 
     ClockTime = Lighting.ClockTime,
 
-    FOV = Camera and Camera.FieldOfView or 70, -- Исправлено: проверка на nil
+    FOV = Camera and Camera.FieldOfView or 70,
 
     CameraMinZoom = LocalPlayer.CameraMinZoomDistance,
     CameraMaxZoom = LocalPlayer.CameraMaxZoomDistance,
@@ -358,7 +358,7 @@ MainStroke.Parent = MainFrame
 setRole(MainStroke, "Stroke")
 
 --==================================================
--- TOP BAR
+-- TOP BAR (КНОПКИ СПРАВА)
 --==================================================
 
 local TitleBar = Instance.new("Frame")
@@ -368,28 +368,25 @@ TitleBar.BackgroundTransparency = 1
 TitleBar.BorderSizePixel = 0
 TitleBar.Parent = MainFrame
 
--- Close
+-- Title (сдвинут левее)
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(1, -120, 1, 0)
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "DaryllHub"
+Title.TextColor3 = getTheme().Text
+Title.TextSize = 16
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TitleBar
+setRole(Title, "Text")
 
-local CloseButton = Instance.new("TextButton")
-CloseButton.Name = "CloseButton"
-CloseButton.Size = UDim2.new(0, 32, 0, 32)
-CloseButton.Position = UDim2.new(0, 5, 0, 5)
-CloseButton.BackgroundColor3 = Color3.fromRGB(150, 45, 50)
-CloseButton.BorderSizePixel = 0
-CloseButton.Text = "×"
-CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseButton.TextSize = 23
-CloseButton.Font = Enum.Font.GothamBold
-CloseButton.Parent = TitleBar
-
-Instance.new("UICorner", CloseButton).CornerRadius = UDim.new(0, 6)
-
--- Settings
-
+-- Settings (справа, перед крестиком)
 local SettingsButton = Instance.new("TextButton")
 SettingsButton.Name = "SettingsButton"
 SettingsButton.Size = UDim2.new(0, 32, 0, 32)
-SettingsButton.Position = UDim2.new(0, 42, 0, 5)
+SettingsButton.Position = UDim2.new(1, -74, 0, 5)
 SettingsButton.BackgroundColor3 = getTheme().Button
 SettingsButton.BorderSizePixel = 0
 SettingsButton.Text = "⚙"
@@ -401,20 +398,20 @@ setRole(SettingsButton, "Button")
 
 Instance.new("UICorner", SettingsButton).CornerRadius = UDim.new(0, 6)
 
--- Title
+-- Close (справа, самая крайняя)
+local CloseButton = Instance.new("TextButton")
+CloseButton.Name = "CloseButton"
+CloseButton.Size = UDim2.new(0, 32, 0, 32)
+CloseButton.Position = UDim2.new(1, -37, 0, 5)
+CloseButton.BackgroundColor3 = Color3.fromRGB(150, 45, 50)
+CloseButton.BorderSizePixel = 0
+CloseButton.Text = "×"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 23
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Parent = TitleBar
 
-local Title = Instance.new("TextLabel")
-Title.Name = "Title"
-Title.Size = UDim2.new(1, -150, 1, 0)
-Title.Position = UDim2.new(0, 82, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "DaryllHub"
-Title.TextColor3 = getTheme().Text
-Title.TextSize = 16
-Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TitleBar
-setRole(Title, "Text")
+Instance.new("UICorner", CloseButton).CornerRadius = UDim.new(0, 6)
 
 --==================================================
 -- WINDOW DRAG
@@ -488,7 +485,7 @@ ToggleButton.Name = "ToggleButton"
 ToggleButton.Size = UDim2.new(0, 58, 0, 58)
 ToggleButton.Position = UDim2.new(0.02, 0, 0.12, 0)
 ToggleButton.BorderSizePixel = 0
-ToggleButton.Text = "D"
+ToggleButton.Text = "Daryll"
 ToggleButton.TextColor3 = getTheme().Text
 ToggleButton.TextSize = 17
 ToggleButton.Font = Enum.Font.GothamBold
@@ -632,7 +629,7 @@ local function createToggle(text, parent, y)
     button.Font = Enum.Font.GothamBold
 
     button.Parent = parent
-    setRole(button, "Toggle")
+    setRole(button, "Button")
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 6)
@@ -1038,7 +1035,7 @@ ResetButton.MouseButton1Click:Connect(function()
 end)
 
 local GodModeButton = createToggle(
-    "Local God Mode",
+    "God Mode (Not all games)",
     PlayerContainer,
     y
 )
@@ -1070,7 +1067,7 @@ GodModeButton.MouseButton1Click:Connect(function()
 
     setToggleVisual(
         GodModeButton,
-        "Local God Mode",
+        "God Mode (Not all games)",
         State.Player.GodMode
     )
 
@@ -1394,9 +1391,7 @@ local function enableFly()
             ) then
                 direction -=
                     Vector3.new(0, 1, 0)
-            end
-
-            if direction.Magnitude > 0 then
+            end            if direction.Magnitude > 0 then
                 direction =
                     direction.Unit
             end
@@ -1817,10 +1812,8 @@ local AntiAFKButton = createToggle(
 
 y = y + 46
 
--- ИСПРАВЛЕНО: добавлена проверка на наличие VirtualUser
 local function triggerAntiAFK()
     if not VirtualUser then
-        -- Если VirtualUser недоступен, используем альтернативный метод
         local mouse = LocalPlayer:GetMouse()
         if mouse then
             mouse.Move(Vector2.new(0, 1))
@@ -2228,7 +2221,6 @@ local AutoTeleportButton = createToggle(
 
 y = y + 46
 
--- ИСПРАВЛЕНО: используем task.spawn для избежания блокировки
 local autoTeleportThread = nil
 
 SavePositionButton.MouseButton1Click:Connect(function()
@@ -2405,7 +2397,6 @@ local function rebuildPlayerList()
 
     rebuildingPlayers = true
 
-    -- ИСПРАВЛЕНО: очищаем только TextButton
     local childrenToRemove = {}
     for _, object in ipairs(PlayerList:GetChildren()) do
         if object:IsA("TextButton") then
@@ -2779,12 +2770,22 @@ end)
 -- SETTINGS WINDOW
 --==================================================
 
-local SettingsOverlay = Instance.new("Frame")
+local SettingsOverlay = Instance.new("ScrollingFrame")
 SettingsOverlay.Name = "SettingsOverlay"
 SettingsOverlay.Size = UDim2.new(1, -115, 1, -52)
 SettingsOverlay.Position = UDim2.new(0, 100, 0, 47)
+
 SettingsOverlay.BorderSizePixel = 0
 SettingsOverlay.Visible = false
+
+SettingsOverlay.BackgroundColor3 = getTheme().Window
+SettingsOverlay.ScrollBarThickness = 4
+SettingsOverlay.ScrollBarImageTransparency = 0.2
+SettingsOverlay.ScrollingDirection = Enum.ScrollingDirection.Y
+
+SettingsOverlay.AutomaticCanvasSize = Enum.AutomaticSize.Y
+SettingsOverlay.CanvasSize = UDim2.new(0, 0, 0, 0)
+
 SettingsOverlay.Parent = MainFrame
 setRole(SettingsOverlay, "Window")
 
@@ -2796,7 +2797,7 @@ local SettingsTitle = Instance.new("TextLabel")
 SettingsTitle.Size = UDim2.new(1, -20, 0, 32)
 SettingsTitle.Position = UDim2.new(0, 10, 0, 7)
 SettingsTitle.BackgroundTransparency = 1
-SettingsTitle.Text = "Настройки"
+SettingsTitle.Text = "Settings"
 SettingsTitle.TextSize = 15
 SettingsTitle.Font = Enum.Font.GothamBold
 SettingsTitle.TextXAlignment =
@@ -2804,26 +2805,12 @@ SettingsTitle.TextXAlignment =
 SettingsTitle.Parent = SettingsOverlay
 setRole(SettingsTitle, "Text")
 
-local SettingsHint = Instance.new("TextLabel")
-SettingsHint.Size = UDim2.new(1, -20, 0, 38)
-SettingsHint.Position = UDim2.new(0, 10, 0, 40)
-SettingsHint.BackgroundTransparency = 1
-SettingsHint.Text =
-    "Изменения применяются сразу."
-SettingsHint.TextSize = 10
-SettingsHint.Font = Enum.Font.GothamMedium
-SettingsHint.TextXAlignment =
-    Enum.TextXAlignment.Left
-SettingsHint.TextWrapped = true
-SettingsHint.Parent = SettingsOverlay
-setRole(SettingsHint, "MutedText")
-
-local SettingsY = 84
+local SettingsY = 48
 
 -- No Limits
 
 local NoLimitsButton = createToggle(
-    "Убрать лимиты",
+    "No limits",
     SettingsOverlay,
     SettingsY
 )
@@ -2842,7 +2829,7 @@ NoLimitsButton.MouseButton1Click:Connect(function()
 
     setToggleVisual(
         NoLimitsButton,
-        "Убрать лимиты",
+        "Disable limits",
         State.Settings.NoLimits
     )
 
@@ -2852,7 +2839,7 @@ end)
 -- Draggable
 
 local DraggableButton = createToggle(
-    "Перетаскивать окно",
+    "Drag UI",
     SettingsOverlay,
     SettingsY
 )
@@ -2889,7 +2876,7 @@ ThemeLabel.Size = UDim2.new(0.92, 0, 0, 25)
 ThemeLabel.Position =
     UDim2.new(0.04, 0, 0, SettingsY + 2)
 ThemeLabel.BackgroundTransparency = 1
-ThemeLabel.Text = "Стиль интерфейса"
+ThemeLabel.Text = "UI style"
 ThemeLabel.TextSize = 12
 ThemeLabel.Font = Enum.Font.GothamBold
 ThemeLabel.TextXAlignment =
@@ -2902,11 +2889,11 @@ SettingsY = SettingsY + 32
 local ThemeButtons = {}
 
 local ThemeDisplayNames = {
-    Black = "Чёрный",
-    Orange = "Оранжевый",
-    Blue = "Синий",
-    Purple = "Фиолетовый",
-    Pink = "Розовый",
+    Black = "Black",
+    Orange = "Orange",
+    Blue = "Blue",
+    Purple = "Purple",
+    Pink = "Pink",
 }
 
 local function applyTheme()
@@ -3002,7 +2989,7 @@ local function applyTheme()
 
     setToggleVisual(
         GodModeButton,
-        "Local God Mode",
+        "God Mode (Not all games)",
         State.Player.GodMode
     )
 
@@ -3069,8 +3056,7 @@ local function applyTheme()
     setToggleVisual(
         XRayButton,
         "X-Ray",
-        State.Visual.XRay
-    )
+        State.Visual.XRay    )
 
     setToggleVisual(
         FullbrightButton,
@@ -3110,13 +3096,13 @@ local function applyTheme()
 
     setToggleVisual(
         NoLimitsButton,
-        "Убрать лимиты",
+        "Remove limits",
         State.Settings.NoLimits
     )
 
     setToggleVisual(
         DraggableButton,
-        "Перетаскивать окно",
+        "Drag UI",
         State.Settings.Draggable
     )
 
@@ -3137,63 +3123,49 @@ local function applyTheme()
     end
 end
 
-for _, themeName in ipairs({
+-- СОЗДАНИЕ КНОПОК ЦВЕТОВ С ПРАВИЛЬНЫМ ПОЗИЦИОНИРОВАНИЕМ
+local themeOrder = {
     "Black",
     "Orange",
     "Blue",
     "Purple",
     "Pink",
-}) do
+}
 
-    local button =
-        Instance.new("TextButton")
+for index, themeName in ipairs(themeOrder) do
+    local button = Instance.new("TextButton")
 
-    button.Name =
-        themeName .. "Theme"
+    button.Name = themeName .. "Theme"
 
-    button.Size =
-        UDim2.new(0.44, 0, 0, 34)
+    button.Size = UDim2.new(0.46, 0, 0, 34)
 
-    local index = #ThemeButtons + 1
+    local column = (index - 1) % 2
+    local row = math.floor((index - 1) / 2)
 
-    local column =
-        (index - 1) % 2
-
-    local row =
-        math.floor((index - 1) / 2)
-
-    button.Position =
-        UDim2.new(
-            0.04 + column * 0.48,
-            0,
-            0,
-            SettingsY + row * 40
-        )
+    button.Position = UDim2.new(
+        0.04 + column * 0.50,
+        0,
+        0,
+        SettingsY + row * 40
+    )
 
     button.BorderSizePixel = 0
-    button.Text =
-        ThemeDisplayNames[themeName]
-
+    button.Text = ThemeDisplayNames[themeName]
     button.TextSize = 11
-    button.Font =
-        Enum.Font.GothamBold
+    button.Font = Enum.Font.GothamBold
+    button.TextXAlignment = Enum.TextXAlignment.Center
 
-    button.Parent =
-        SettingsOverlay
-
+    button.Parent = SettingsOverlay
     setRole(button, "Button")
 
-    Instance.new("UICorner", button)
-        .CornerRadius =
-        UDim.new(0, 6)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
 
-    ThemeButtons[themeName] =
-        button
+    ThemeButtons[themeName] = button
 
     button.MouseButton1Click:Connect(function()
-        State.Settings.Theme =
-            themeName
-
+        State.Settings.Theme = themeName
         applyTheme()
     end)
 end
@@ -3323,7 +3295,6 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     end
 end)
 
--- ИСПРАВЛЕНО: обработка смены камеры с проверкой на nil
 workspace:GetPropertyChangedSignal(
     "CurrentCamera"
 ):Connect(function()
