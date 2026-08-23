@@ -33,6 +33,7 @@ local State = {
         InfiniteJump = false,
         GodMode = false,
         Invisible = false,
+        FreezeCharacter = false,
     },
 
     Movement = {
@@ -46,6 +47,8 @@ local State = {
         CameraDistance = 12,
         MinCameraDistance = 2,
         MaxCameraDistance = 50,
+
+        AirWalk = false,
     },
 
     Anti = {
@@ -54,6 +57,11 @@ local State = {
         AntiSit = false,
         AntiSlow = false,
         AntiAFK = false,
+
+        AntiFallDamage = false,
+        AntiFling = false,
+        AntiJumpDisable = false,
+        AntiSeat = false,
     },
 
     Visual = {
@@ -893,6 +901,13 @@ local function updateAllSliderLimits()
 end
 
 --==================================================
+-- FORWARD DECLARATIONS
+--==================================================
+
+local AirWalkButton
+local disableAirWalk
+
+--==================================================
 -- PLAYER TAB
 --==================================================
 
@@ -1097,6 +1112,8 @@ local InvisibleButton = createToggle(
     y
 )
 
+y = y + 46
+
 local InvisibleConnection = nil
 
 local function setTransparency(character, transparency)
@@ -1161,6 +1178,72 @@ InvisibleButton.MouseButton1Click:Connect(function()
     setInvisible(
         State.Player.Invisible
     )
+end)
+
+--==================================================
+-- FREEZE CHARACTER
+--==================================================
+
+local FreezeButton = createToggle(
+    "Freeze Character",
+    PlayerContainer,
+    y
+)
+
+y = y + 46
+
+local FreezeOriginalAnchored = {}
+
+local function applyFreezeCharacter(enabled)
+    local root = getRoot()
+
+    if not root then
+        return
+    end
+
+    if enabled then
+        -- Отключаем Fly и Air Walk при включении Freeze
+        if State.Movement.Fly then
+            State.Movement.Fly = false
+            setToggleVisual(FlyButton, "Fly", false)
+            disableFly()
+        end
+
+        if State.Movement.AirWalk then
+            State.Movement.AirWalk = false
+            setToggleVisual(AirWalkButton, "Air Walk", false)
+            disableAirWalk()
+        end
+
+        if FreezeOriginalAnchored[root] == nil then
+            FreezeOriginalAnchored[root] = root.Anchored
+        end
+        root.Anchored = true
+    else
+        if FreezeOriginalAnchored[root] ~= nil then
+            root.Anchored = FreezeOriginalAnchored[root]
+            FreezeOriginalAnchored[root] = nil
+        else
+            root.Anchored = false
+        end
+    end
+end
+
+FreezeButton.MouseButton1Click:Connect(function()
+    State.Player.FreezeCharacter =
+        not State.Player.FreezeCharacter
+
+    setToggleVisual(
+        FreezeButton,
+        "Freeze Character",
+        State.Player.FreezeCharacter
+    )
+
+    if State.Player.FreezeCharacter then
+        applyFreezeCharacter(true)
+    else
+        applyFreezeCharacter(false)
+    end
 end)
 
 --==================================================
@@ -1305,6 +1388,13 @@ local function enableFly()
         return
     end
 
+    -- Отключаем Air Walk, если включен, чтобы не конфликтовать
+    if State.Movement.AirWalk then
+        State.Movement.AirWalk = false
+        setToggleVisual(AirWalkButton, "Air Walk", false)
+        disableAirWalk()
+    end
+
     destroy(FlyVelocity)
     destroy(FlyAttachment)
 
@@ -1391,7 +1481,9 @@ local function enableFly()
             ) then
                 direction -=
                     Vector3.new(0, 1, 0)
-            end            if direction.Magnitude > 0 then
+            end
+
+            if direction.Magnitude > 0 then
                 direction =
                     direction.Unit
             end
@@ -1415,6 +1507,12 @@ FlyButton.MouseButton1Click:Connect(function()
     )
 
     if State.Movement.Fly then
+        -- Отключаем Air Walk, если включен, чтобы не конфликтовать
+        if State.Movement.AirWalk then
+            State.Movement.AirWalk = false
+            setToggleVisual(AirWalkButton, "Air Walk", false)
+            disableAirWalk()
+        end
         enableFly()
     else
         disableFly()
@@ -1579,6 +1677,102 @@ CameraNoclipButton.MouseButton1Click:Connect(function()
         )
     else
         disableCameraNoclip()
+    end
+end)
+
+--==================================================
+-- AIR WALK
+--==================================================
+
+AirWalkButton = createToggle(
+    "Air Walk",
+    MovementContainer,
+    y
+)
+
+y = y + 46
+
+local AirWalkRoot = nil
+
+disableAirWalk = function()
+    disconnect("AirWalk")
+    AirWalkRoot = nil
+end
+
+local function enableAirWalk()
+    local root = getRoot()
+    local humanoid = getHumanoid()
+
+    if not root or not humanoid then
+        State.Movement.AirWalk = false
+        setToggleVisual(AirWalkButton, "Air Walk", false)
+        return
+    end
+
+    -- Отключаем Fly, чтобы избежать конфликтов
+    if State.Movement.Fly then
+        State.Movement.Fly = false
+        setToggleVisual(FlyButton, "Fly", false)
+        disableFly()
+    end
+
+    AirWalkRoot = root
+
+    connect(
+        "AirWalk",
+        RunService.Heartbeat,
+        function()
+            if not State.Movement.AirWalk then
+                return
+            end
+
+            local currentRoot = getRoot()
+            local currentHumanoid = getHumanoid()
+
+            if not currentRoot or not currentHumanoid then
+                return
+            end
+
+            local state = currentHumanoid:GetState()
+
+            local grounded =
+                state == Enum.HumanoidStateType.Running
+                or state == Enum.HumanoidStateType.RunningNoPhysics
+                or state == Enum.HumanoidStateType.Landed
+
+            if not grounded then
+                local velocity = currentRoot.AssemblyLinearVelocity
+                currentRoot.AssemblyLinearVelocity =
+                    Vector3.new(
+                        velocity.X,
+                        0,
+                        velocity.Z
+                    )
+            end
+        end
+    )
+end
+
+AirWalkButton.MouseButton1Click:Connect(function()
+    State.Movement.AirWalk =
+        not State.Movement.AirWalk
+
+    setToggleVisual(
+        AirWalkButton,
+        "Air Walk",
+        State.Movement.AirWalk
+    )
+
+    if State.Movement.AirWalk then
+        -- Отключаем Freeze, если включен
+        if State.Player.FreezeCharacter then
+            State.Player.FreezeCharacter = false
+            setToggleVisual(FreezeButton, "Freeze Character", false)
+            applyFreezeCharacter(false)
+        end
+        enableAirWalk()
+    else
+        disableAirWalk()
     end
 end)
 
@@ -1854,6 +2048,254 @@ AntiAFKButton.MouseButton1Click:Connect(function()
         )
     else
         disconnect("AntiAFK")
+    end
+end)
+
+--==================================================
+-- ANTI FALL DAMAGE
+--==================================================
+
+local AntiFallDamageButton = createToggle(
+    "Anti Fall Damage",
+    AntiContainer,
+    y
+)
+
+y = y + 46
+
+local FallDamageOriginal = {}
+
+local function applyAntiFallDamage()
+    if not State.Anti.AntiFallDamage then
+        return
+    end
+
+    local humanoid = getHumanoid()
+    local root = getRoot()
+
+    if not humanoid or not root then
+        return
+    end
+
+    local velocity = root.AssemblyLinearVelocity
+    
+    -- Проверяем, находится ли персонаж в состоянии падения
+    local state = humanoid:GetState()
+    local isFalling = state == Enum.HumanoidStateType.FallingDown or 
+                     state == Enum.HumanoidStateType.Ragdoll
+    
+    if isFalling then
+        -- Сохраняем здоровье перед падением
+        if FallDamageOriginal[humanoid] == nil then
+            FallDamageOriginal[humanoid] = humanoid.Health
+        end
+    else
+        -- При приземлении проверяем, был ли урон от падения
+        local savedHealth = FallDamageOriginal[humanoid]
+        if savedHealth and humanoid.Health < savedHealth then
+            -- Восстанавливаем только если разница не слишком большая (урон от падения обычно не более 50-100)
+            local damage = savedHealth - humanoid.Health
+            if damage <= 100 and damage > 0 then
+                humanoid.Health = savedHealth
+            end
+        end
+        FallDamageOriginal[humanoid] = nil
+    end
+end
+
+AntiFallDamageButton.MouseButton1Click:Connect(function()
+    State.Anti.AntiFallDamage =
+        not State.Anti.AntiFallDamage
+
+    setToggleVisual(
+        AntiFallDamageButton,
+        "Anti Fall Damage",
+        State.Anti.AntiFallDamage
+    )
+
+    if State.Anti.AntiFallDamage then
+        connect(
+            "AntiFallDamage",
+            RunService.Heartbeat,
+            applyAntiFallDamage
+        )
+    else
+        disconnect("AntiFallDamage")
+        table.clear(FallDamageOriginal)
+    end
+end)
+
+--==================================================
+-- ANTI FLING
+--==================================================
+
+local AntiFlingButton = createToggle(
+    "Anti Fling",
+    AntiContainer,
+    y
+)
+
+y = y + 46
+
+local ANTI_FLING_MAX_LINEAR_VELOCITY = 100
+local ANTI_FLING_MAX_ANGULAR_VELOCITY = 100
+
+local function applyAntiFling()
+    if not State.Anti.AntiFling then
+        return
+    end
+
+    local root = getRoot()
+    if not root then
+        return
+    end
+
+    local linear = root.AssemblyLinearVelocity
+    local angular = root.AssemblyAngularVelocity
+
+    local linearMagnitude = linear.Magnitude
+    local angularMagnitude = angular.Magnitude
+
+    if linearMagnitude > ANTI_FLING_MAX_LINEAR_VELOCITY then
+        local clamped = linear / linearMagnitude * ANTI_FLING_MAX_LINEAR_VELOCITY
+        root.AssemblyLinearVelocity = clamped
+    end
+
+    if angularMagnitude > ANTI_FLING_MAX_ANGULAR_VELOCITY then
+        local clamped = angular / angularMagnitude * ANTI_FLING_MAX_ANGULAR_VELOCITY
+        root.AssemblyAngularVelocity = clamped
+    end
+end
+
+AntiFlingButton.MouseButton1Click:Connect(function()
+    State.Anti.AntiFling =
+        not State.Anti.AntiFling
+
+    setToggleVisual(
+        AntiFlingButton,
+        "Anti Fling",
+        State.Anti.AntiFling
+    )
+
+    if State.Anti.AntiFling then
+        connect(
+            "AntiFling",
+            RunService.Heartbeat,
+            applyAntiFling
+        )
+    else
+        disconnect("AntiFling")
+    end
+end)
+
+--==================================================
+-- ANTI JUMP DISABLE
+--==================================================
+
+local AntiJumpDisableButton = createToggle(
+    "Anti Jump Disable",
+    AntiContainer,
+    y
+)
+
+y = y + 46
+
+local function applyAntiJumpDisable()
+    if not State.Anti.AntiJumpDisable then
+        return
+    end
+
+    local humanoid = getHumanoid()
+    if not humanoid then
+        return
+    end
+
+    humanoid.UseJumpPower = true
+    humanoid.JumpPower = State.Player.JumpPower
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+end
+
+AntiJumpDisableButton.MouseButton1Click:Connect(function()
+    State.Anti.AntiJumpDisable =
+        not State.Anti.AntiJumpDisable
+
+    setToggleVisual(
+        AntiJumpDisableButton,
+        "Anti Jump Disable",
+        State.Anti.AntiJumpDisable
+    )
+
+    if State.Anti.AntiJumpDisable then
+        connect(
+            "AntiJumpDisable",
+            RunService.Heartbeat,
+            applyAntiJumpDisable
+        )
+    else
+        disconnect("AntiJumpDisable")
+    end
+end)
+
+--==================================================
+-- ANTI SEAT
+--==================================================
+
+local AntiSeatButton = createToggle(
+    "Anti Seat",
+    AntiContainer,
+    y
+)
+
+y = y + 46
+
+local function applyAntiSeat()
+    if not State.Anti.AntiSeat then
+        return
+    end
+
+    local humanoid = getHumanoid()
+    if not humanoid then
+        return
+    end
+
+    local seat = humanoid.SeatPart
+    
+    if seat then
+        humanoid.Sit = false
+        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+    
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+    local currentState = humanoid:GetState()
+    if currentState == Enum.HumanoidStateType.Seated then
+        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+end
+
+AntiSeatButton.MouseButton1Click:Connect(function()
+    State.Anti.AntiSeat =
+        not State.Anti.AntiSeat
+
+    setToggleVisual(
+        AntiSeatButton,
+        "Anti Seat",
+        State.Anti.AntiSeat
+    )
+
+    if State.Anti.AntiSeat then
+        connect(
+            "AntiSeat",
+            RunService.Heartbeat,
+            applyAntiSeat
+        )
+    else
+        disconnect("AntiSeat")
+
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+        end
     end
 end)
 
@@ -2538,6 +2980,8 @@ local SpectateButton = createToggle(
     y
 )
 
+y = y + 46
+
 local function stopSpectating()
     State.Players.Spectating = false
 
@@ -2595,6 +3039,45 @@ SpectateButton.MouseButton1Click:Connect(function()
         "Spectate Player",
         true
     )
+end)
+
+--==================================================
+-- BRING PLAYER
+--==================================================
+
+local BringPlayerButton = createAction(
+    "Bring Player",
+    PlayersContainer,
+    y
+)
+
+y = y + 46
+
+BringPlayerButton.MouseButton1Click:Connect(function()
+    local target = State.Players.Selected
+
+    if not target then
+        return
+    end
+
+    local targetCharacter = target.Character
+    if not targetCharacter then
+        return
+    end
+
+    local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then
+        return
+    end
+
+    local localRoot = getRoot()
+    if not localRoot then
+        return
+    end
+
+    pcall(function()
+        targetRoot.CFrame = localRoot.CFrame * CFrame.new(0, 0, 3)
+    end)
 end)
 
 --==================================================
@@ -2829,7 +3312,7 @@ NoLimitsButton.MouseButton1Click:Connect(function()
 
     setToggleVisual(
         NoLimitsButton,
-        "Disable limits",
+        "No limits",
         State.Settings.NoLimits
     )
 
@@ -2854,7 +3337,7 @@ SettingsY = SettingsY + 46
 
 setToggleVisual(
     DraggableButton,
-    "Перетаскивать окно",
+    "Drag UI",
     State.Settings.Draggable
 )
 
@@ -2864,7 +3347,7 @@ DraggableButton.MouseButton1Click:Connect(function()
 
     setToggleVisual(
         DraggableButton,
-        "Перетаскивать окно",
+        "Drag UI",
         State.Settings.Draggable
     )
 end)
@@ -3000,6 +3483,12 @@ local function applyTheme()
     )
 
     setToggleVisual(
+        FreezeButton,
+        "Freeze Character",
+        State.Player.FreezeCharacter
+    )
+
+    setToggleVisual(
         NoclipButton,
         "Noclip",
         State.Movement.Noclip
@@ -3009,6 +3498,12 @@ local function applyTheme()
         FlyButton,
         "Fly",
         State.Movement.Fly
+    )
+
+    setToggleVisual(
+        AirWalkButton,
+        "Air Walk",
+        State.Movement.AirWalk
     )
 
     setToggleVisual(
@@ -3054,9 +3549,34 @@ local function applyTheme()
     )
 
     setToggleVisual(
+        AntiFallDamageButton,
+        "Anti Fall Damage",
+        State.Anti.AntiFallDamage
+    )
+
+    setToggleVisual(
+        AntiFlingButton,
+        "Anti Fling",
+        State.Anti.AntiFling
+    )
+
+    setToggleVisual(
+        AntiJumpDisableButton,
+        "Anti Jump Disable",
+        State.Anti.AntiJumpDisable
+    )
+
+    setToggleVisual(
+        AntiSeatButton,
+        "Anti Seat",
+        State.Anti.AntiSeat
+    )
+
+    setToggleVisual(
         XRayButton,
         "X-Ray",
-        State.Visual.XRay    )
+        State.Visual.XRay
+    )
 
     setToggleVisual(
         FullbrightButton,
@@ -3096,7 +3616,7 @@ local function applyTheme()
 
     setToggleVisual(
         NoLimitsButton,
-        "Remove limits",
+        "No limits",
         State.Settings.NoLimits
     )
 
@@ -3174,22 +3694,23 @@ end
 -- SETTINGS OPEN/CLOSE
 --==================================================
 
-SettingsButton.MouseButton1Click:Connect(function()
-    SettingsOverlay.Visible =
-        not SettingsOverlay.Visible
-
-    for _, container in pairs(
-        Containers
-    ) do
-        container.Visible =
-            false
-    end
-end)
-
 local function restoreCurrentTab()
     SettingsOverlay.Visible = false
     selectTab(SelectedTab)
 end
+
+SettingsButton.MouseButton1Click:Connect(function()
+    if SettingsOverlay.Visible then
+        restoreCurrentTab()
+        return
+    end
+
+    SettingsOverlay.Visible = true
+
+    for _, container in pairs(Containers) do
+        container.Visible = false
+    end
+end)
 
 CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
@@ -3273,6 +3794,36 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     if State.Player.GodMode then
         task.wait(0.1)
         applyGodMode()
+    end
+
+    if State.Player.FreezeCharacter then
+        task.wait(0.1)
+        applyFreezeCharacter(true)
+    end
+
+    if State.Movement.AirWalk then
+        task.wait(0.1)
+        enableAirWalk()
+    end
+
+    if State.Anti.AntiJumpDisable then
+        task.wait(0.1)
+        applyAntiJumpDisable()
+    end
+
+    if State.Anti.AntiSeat then
+        task.wait(0.1)
+        applyAntiSeat()
+    end
+
+    if State.Anti.AntiFling then
+        task.wait(0.1)
+        -- AntiFling работает через heartbeat, ничего дополнительно не нужно
+    end
+
+    if State.Anti.AntiFallDamage then
+        task.wait(0.1)
+        -- AntiFallDamage работает через heartbeat, ничего дополнительно не нужно
     end
 
     if State.Players.Spectating then
@@ -3367,11 +3918,25 @@ ScreenGui.Destroying:Connect(function()
 
     disableNoclip()
     disableFly()
+    disableAirWalk()
     disableCameraNoclip()
+    applyFreezeCharacter(false)
 
     if State.Utility.FPSBoosted then
         disableFPSBoost()
     end
+
+    -- Восстанавливаем состояния для Anti
+    local humanoid = getHumanoid()
+    if humanoid then
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+    end
+
+    table.clear(FallDamageOriginal)
 
     workspace.Gravity =
         Original.Gravity
