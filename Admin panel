@@ -37,7 +37,6 @@ local timeOfDayVal = 12
 local lightEnabled = false
 local lightRangeVal = 5
 local lightBrightnessVal = 3
-local tracersEnabled = false
 local boxEspEnabled = false
 local fullbrightEnabled = false
 local fovVal = 70
@@ -62,7 +61,6 @@ local flySpeed = 1
 local walkSpeed = 16
 local jumpPower = 50
 local hipHeightVal = 2
-local cameraDistance = 12
 
 local INVISIBILITY_POSITION = Vector3.new(-25.95, 84, 3537.55)
 local invisChair = nil
@@ -73,7 +71,6 @@ local xrayLoop = nil
 local infiniteJumpConnection = nil
 local noFogLoop = nil
 local clickTpConnection = nil
-local tracersLoop = nil
 local boxEspLoop = nil
 local fullbrightLoop = nil
 
@@ -95,13 +92,11 @@ H.closed = false
 H.settingsOpen = false
 H.minimized = false
 H.noFunctionLimits = false
-H.dragUIEnabled = false
 H.dragButtonEnabled = false
 H.defaultMainPosition = UDim2.new(0.5, -225, 0.5, -150)
 H.sliders = {}
 H.uiConnections = {}
 H.characterAddedConnection = nil
-H.mainPositionConnection = nil
 local function trackConnection(connection)
     table.insert(H.uiConnections, connection)
     return connection
@@ -121,14 +116,6 @@ local mainStroke = Instance.new("UIStroke")
 mainStroke.Color = Color3.fromRGB(45, 45, 48)
 mainStroke.Thickness = 1
 mainStroke.Parent = mainFrame
-
-H.mainPositionConnection = runService.RenderStepped:Connect(function()
-    if H.closed then return end
-    if not H.dragUIEnabled and not H.minimized then
-        mainFrame.Position = H.defaultMainPosition
-    end
-end)
-trackConnection(H.mainPositionConnection)
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
@@ -236,48 +223,10 @@ minimizeButton.MouseButton1Click:Connect(function()
     setMinimized(true)
 end)
 
-H.windowDragging = false
-H.windowDragStart = nil
-H.windowDragOrigin = nil
-
-titleBar.InputBegan:Connect(function(input)
-    if H.closed or not H.dragUIEnabled or H.settingsOpen then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        H.windowDragging = true
-        H.windowDragStart = input.Position
-        H.windowDragOrigin = mainFrame.Position
-
-        local changed
-        changed = input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                H.windowDragging = false
-                if changed then changed:Disconnect() end
-            end
-        end)
-    end
-end)
-
-trackConnection(userInputService.InputChanged:Connect(function(input)
-    if H.closed or not H.windowDragging or not H.dragUIEnabled then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseMovement
-        and input.UserInputType ~= Enum.UserInputType.Touch then
-        return
-    end
-    if not H.windowDragStart or not H.windowDragOrigin then return end
-
-    local delta = input.Position - H.windowDragStart
-    mainFrame.Position = UDim2.new(
-        H.windowDragOrigin.X.Scale,
-        H.windowDragOrigin.X.Offset + delta.X,
-        H.windowDragOrigin.Y.Scale,
-        H.windowDragOrigin.Y.Offset + delta.Y
-    )
-end))
-
 H.buttonDragging = false
 H.buttonDragStart = nil
 H.buttonDragOrigin = nil
+H.buttonDragInput = nil
 
 toggleGuiBtn.InputBegan:Connect(function(input)
     if H.closed or not H.dragButtonEnabled then return end
@@ -287,35 +236,40 @@ toggleGuiBtn.InputBegan:Connect(function(input)
         H.buttonWasDragged = false
         H.buttonDragStart = input.Position
         H.buttonDragOrigin = toggleGuiBtn.Position
+    end
+end)
 
-        local changed
-        changed = input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                H.buttonDragging = false
-                if changed then changed:Disconnect() end
-            end
-        end)
+toggleGuiBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+        H.buttonDragInput = input
     end
 end)
 
 trackConnection(userInputService.InputChanged:Connect(function(input)
     if H.closed or not H.buttonDragging or not H.dragButtonEnabled then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseMovement
-        and input.UserInputType ~= Enum.UserInputType.Touch then
-        return
-    end
+    if H.buttonDragInput and input ~= H.buttonDragInput then return end
     if not H.buttonDragStart or not H.buttonDragOrigin then return end
 
     local delta = input.Position - H.buttonDragStart
     if math.abs(delta.X) > 4 or math.abs(delta.Y) > 4 then
         H.buttonWasDragged = true
     end
+
     toggleGuiBtn.Position = UDim2.new(
         H.buttonDragOrigin.X.Scale,
         H.buttonDragOrigin.X.Offset + delta.X,
         H.buttonDragOrigin.Y.Scale,
         H.buttonDragOrigin.Y.Offset + delta.Y
     )
+end))
+
+trackConnection(userInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        H.buttonDragging = false
+        H.buttonDragInput = nil
+    end
 end))
 
 local tabPanel = Instance.new("Frame")
@@ -331,7 +285,7 @@ local function createTabContainer(name)
     container.Size = UDim2.new(1, -95, 1, -50)
     container.Position = UDim2.new(0, 90, 0, 45)
     container.BackgroundTransparency = 1
-    container.CanvasSize = UDim2.new(0, 0, 0, 950) 
+    container.CanvasSize = UDim2.new(0, 0, 0, 0) 
     container.ScrollBarThickness = 2
     container.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 65)
     container.Parent = mainFrame
@@ -584,8 +538,7 @@ local function createSettingsToggle(labelText, yPos)
 end
 
 H.noLimitsBtn = createSettingsToggle("No fuction limits", 50)
-H.dragUIBtn = createSettingsToggle("Drag UI", 96)
-H.dragButtonBtn = createSettingsToggle("Drag Button", 142)
+H.dragButtonBtn = createSettingsToggle("Drag Button", 96)
 
 local function closeSettings()
     H.settingsOpen = false
@@ -627,15 +580,6 @@ H.noLimitsBtn.MouseButton1Click:Connect(function()
     H.noLimitsBtn.Text = "No fuction limits [" .. (H.noFunctionLimits and "ON" or "OFF") .. "]"
     H.noLimitsBtn.TextColor3 = H.noFunctionLimits and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
     updateAllSliderLimits()
-end)
-
-H.dragUIBtn.MouseButton1Click:Connect(function()
-    H.dragUIEnabled = not H.dragUIEnabled
-    H.dragUIBtn.Text = "Drag UI [" .. (H.dragUIEnabled and "ON" or "OFF") .. "]"
-    H.dragUIBtn.TextColor3 = H.dragUIEnabled and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
-    if not H.dragUIEnabled then
-        mainFrame.Position = H.defaultMainPosition
-    end
 end)
 
 H.dragButtonBtn.MouseButton1Click:Connect(function()
@@ -1409,13 +1353,450 @@ local function toggleXray()
 end
 xrayBtn.MouseButton1Click:Connect(toggleXray)
 
--- Camera Distance
-local camDistSlider = createSlider("Cam Distance", funContainer, yOffsetFun, 2, 30, cameraDistance, function(val)
-    cameraDistance = val
-    player.CameraMinZoomDistance = cameraDistance
-    player.CameraMaxZoomDistance = cameraDistance
-end)
+-- Animation Speed
+H.animationSpeed = 1
+H.animationSpeedConnection = nil
+
+local animationSpeedSlider = createSlider(
+    "Animation Speed",
+    funContainer,
+    yOffsetFun,
+    0.1,
+    5,
+    H.animationSpeed,
+    0.1,
+    function(val)
+        H.animationSpeed = val
+        local char = player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local animator = hum and hum:FindFirstChildOfClass("Animator")
+        if animator then
+            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                pcall(function() track:AdjustSpeed(H.animationSpeed) end)
+            end
+        elseif hum then
+            for _, track in ipairs(hum:GetPlayingAnimationTracks()) do
+                pcall(function() track:AdjustSpeed(H.animationSpeed) end)
+            end
+        end
+    end
+)
 yOffsetFun = yOffsetFun + 46
+
+do
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local animator = hum and hum:FindFirstChildOfClass("Animator")
+    if animator then
+        H.animationSpeedConnection = animator.AnimationPlayed:Connect(function(track)
+            task.defer(function()
+                if track and track.IsPlaying then
+                    pcall(function() track:AdjustSpeed(H.animationSpeed) end)
+                end
+            end)
+        end)
+        trackConnection(H.animationSpeedConnection)
+    end
+end
+
+H.animationCharacterConnection = player.CharacterAdded:Connect(function(char)
+    task.defer(function()
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+        if not hum then return end
+
+        local animator = hum:FindFirstChildOfClass("Animator") or hum:WaitForChild("Animator", 5)
+        if animator then
+            if H.animationSpeedConnection then
+                H.animationSpeedConnection:Disconnect()
+                H.animationSpeedConnection = nil
+            end
+
+            H.animationSpeedConnection = animator.AnimationPlayed:Connect(function(track)
+                task.defer(function()
+                    if track and track.IsPlaying then
+                        pcall(function() track:AdjustSpeed(H.animationSpeed) end)
+                    end
+                end)
+            end)
+            trackConnection(H.animationSpeedConnection)
+
+            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                pcall(function() track:AdjustSpeed(H.animationSpeed) end)
+            end
+        end
+    end)
+end)
+trackConnection(H.animationCharacterConnection)
+
+-- Crosshair
+H.crosshairEnabled = false
+H.crosshairGui = Instance.new("ScreenGui")
+H.crosshairGui.Name = "DaryllHub_Crosshair"
+H.crosshairGui.ResetOnSpawn = false
+H.crosshairGui.IgnoreGuiInset = true
+H.crosshairGui.DisplayOrder = 100
+H.crosshairGui.Enabled = false
+H.crosshairGui.Parent = coreGui:FindFirstChild("RobloxGui") or coreGui
+
+H.crosshairLabel = Instance.new("TextLabel")
+H.crosshairLabel.Size = UDim2.new(0, 28, 0, 28)
+H.crosshairLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+H.crosshairLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+H.crosshairLabel.BackgroundTransparency = 1
+H.crosshairLabel.Text = "+"
+H.crosshairLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+H.crosshairLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+H.crosshairLabel.TextStrokeTransparency = 0
+H.crosshairLabel.TextSize = 22
+H.crosshairLabel.Font = Enum.Font.GothamBold
+H.crosshairLabel.Parent = H.crosshairGui
+
+local crosshairBtn = createToggleButton("Crosshair", funContainer, yOffsetFun)
+yOffsetFun = yOffsetFun + 46
+crosshairBtn.MouseButton1Click:Connect(function()
+    H.crosshairEnabled = not H.crosshairEnabled
+    H.crosshairGui.Enabled = H.crosshairEnabled
+    crosshairBtn.Text = "Crosshair [" .. (H.crosshairEnabled and "ON" or "OFF") .. "]"
+    crosshairBtn.TextColor3 = H.crosshairEnabled
+        and Color3.fromRGB(50, 200, 50)
+        or Color3.fromRGB(200, 50, 50)
+end)
+
+-- Freecam
+H.freecamEnabled = false
+H.freecamSpeed = 32
+H.freecamConnection = nil
+H.freecamInputConnection = nil
+H.freecamTouchConnection = nil
+H.freecamTouchEndedConnection = nil
+H.freecamTouchLookActive = false
+H.freecamLastTouchPosition = nil
+H.freecamSavedCameraType = nil
+H.freecamSavedCameraSubject = nil
+H.freecamSavedCFrame = nil
+H.freecamSavedRootCFrame = nil
+H.freecamSavedRootAnchored = nil
+H.freecamSavedRootVelocity = nil
+H.freecamSavedRootAngularVelocity = nil
+H.freecamControls = nil
+H.freecamCameraPosition = nil
+H.freecamYaw = 0
+H.freecamPitch = 0
+
+local FREECAM_MOUSE_SENSITIVITY = 0.0025
+local FREECAM_TOUCH_SENSITIVITY = 0.0035
+local FREECAM_PITCH_LIMIT = math.rad(89)
+
+local function isTouchOverAnyGui(position)
+    local ok, guiObjects = pcall(function()
+        return game:GetService("GuiService"):GetGuiObjectsAtPosition(position.X, position.Y)
+    end)
+
+    if not ok or not guiObjects then
+        return false
+    end
+
+    for _, guiObject in ipairs(guiObjects) do
+        if guiObject and guiObject:IsA("GuiObject") and guiObject.Visible then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function freecamUpdateAnglesFromCFrame()
+    local look = camera.CFrame.LookVector
+    H.freecamPitch = math.asin(math.clamp(look.Y, -1, 1))
+    H.freecamYaw = math.atan2(-look.X, -look.Z)
+end
+
+local function freecamApplyRotation()
+    local position = H.freecamCameraPosition or camera.CFrame.Position
+    local rotation = CFrame.fromOrientation(H.freecamPitch, H.freecamYaw, 0)
+    camera.CFrame = CFrame.new(position) * rotation
+end
+
+local function getFreecamMoveVector()
+    local move = Vector3.zero
+
+    -- Keyboard: only WASD. No Space / LeftCtrl.
+    if userInputService:IsKeyDown(Enum.KeyCode.W) then
+        move += Vector3.new(0, 0, -1)
+    end
+    if userInputService:IsKeyDown(Enum.KeyCode.S) then
+        move += Vector3.new(0, 0, 1)
+    end
+    if userInputService:IsKeyDown(Enum.KeyCode.A) then
+        move += Vector3.new(-1, 0, 0)
+    end
+    if userInputService:IsKeyDown(Enum.KeyCode.D) then
+        move += Vector3.new(1, 0, 0)
+    end
+
+    -- Normal Roblox mobile/gamepad joystick. No custom joystick is created.
+    if H.freecamControls and H.freecamControls.GetMoveVector then
+        local okMove, moveVector = pcall(function()
+            return H.freecamControls:GetMoveVector()
+        end)
+
+        if okMove and typeof(moveVector) == "Vector3" then
+            -- PlayerModule's forward is -Z, which already matches CFrame LookVector.
+            move += Vector3.new(moveVector.X, 0, moveVector.Z)
+        end
+    end
+
+    return move.Magnitude > 1 and move.Unit or move
+end
+
+local function stopFreecam()
+    if not H.freecamEnabled and not H.freecamConnection then
+        return
+    end
+
+    H.freecamEnabled = false
+
+    if H.freecamConnection then
+        H.freecamConnection:Disconnect()
+        H.freecamConnection = nil
+    end
+
+    if H.freecamInputConnection then
+        H.freecamInputConnection:Disconnect()
+        H.freecamInputConnection = nil
+    end
+
+    if H.freecamTouchConnection then
+        H.freecamTouchConnection:Disconnect()
+        H.freecamTouchConnection = nil
+    end
+
+    if H.freecamTouchEndedConnection then
+        H.freecamTouchEndedConnection:Disconnect()
+        H.freecamTouchEndedConnection = nil
+    end
+
+    H.freecamTouchLookActive = false
+    H.freecamLastTouchPosition = nil
+
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    if root then
+        if H.freecamSavedRootCFrame then
+            root.CFrame = H.freecamSavedRootCFrame
+        end
+
+        if H.freecamSavedRootVelocity then
+            root.AssemblyLinearVelocity = H.freecamSavedRootVelocity
+        end
+
+        if H.freecamSavedRootAngularVelocity then
+            root.AssemblyAngularVelocity = H.freecamSavedRootAngularVelocity
+        end
+
+        if H.freecamSavedRootAnchored ~= nil then
+            root.Anchored = H.freecamSavedRootAnchored
+        end
+    end
+
+    if H.freecamSavedCameraType then
+        camera.CameraType = H.freecamSavedCameraType
+    else
+        camera.CameraType = Enum.CameraType.Custom
+    end
+
+    if H.freecamSavedCameraSubject and H.freecamSavedCameraSubject.Parent then
+        camera.CameraSubject = H.freecamSavedCameraSubject
+    else
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            camera.CameraSubject = hum
+        end
+    end
+
+    H.freecamSavedCameraType = nil
+    H.freecamSavedCameraSubject = nil
+    H.freecamSavedCFrame = nil
+    H.freecamSavedRootCFrame = nil
+    H.freecamSavedRootAnchored = nil
+    H.freecamSavedRootVelocity = nil
+    H.freecamSavedRootAngularVelocity = nil
+    H.freecamControls = nil
+    H.freecamCameraPosition = nil
+    H.freecamTouchLookActive = false
+    H.freecamLastTouchPosition = nil
+end
+
+local function startFreecam()
+    if H.freecamEnabled then
+        return true
+    end
+
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    if not root then
+        return false
+    end
+
+    H.freecamEnabled = true
+    H.freecamSavedCameraType = camera.CameraType
+    H.freecamSavedCameraSubject = camera.CameraSubject
+    H.freecamSavedCFrame = camera.CFrame
+    H.freecamSavedRootCFrame = root.CFrame
+    H.freecamSavedRootAnchored = root.Anchored
+    H.freecamSavedRootAnchored = root.Anchored
+    H.freecamSavedRootVelocity = root.AssemblyLinearVelocity
+    H.freecamSavedRootAngularVelocity = root.AssemblyAngularVelocity
+    H.freecamCameraPosition = camera.CFrame.Position
+
+    -- Obtain Roblox's existing movement controls only when Freecam is enabled.
+    H.freecamControls = nil
+    pcall(function()
+        local playerScripts = player:FindFirstChildOfClass("PlayerScripts")
+        local playerModule = playerScripts and playerScripts:FindFirstChild("PlayerModule")
+        if playerModule then
+            local controls = require(playerModule):GetControls()
+            if controls and controls.GetMoveVector then
+                H.freecamControls = controls
+            end
+        end
+    end)
+
+    freecamUpdateAnglesFromCFrame()
+
+    -- Freeze only the physical root. Humanoid movement settings are untouched.
+    root.Anchored = true
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+
+    camera.CameraType = Enum.CameraType.Scriptable
+    freecamApplyRotation()
+
+    H.freecamInputConnection = userInputService.InputChanged:Connect(function(input)
+        if not H.freecamEnabled or H.closed then
+            return
+        end
+
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            H.freecamYaw -= input.Delta.X * FREECAM_MOUSE_SENSITIVITY
+            H.freecamPitch = math.clamp(
+                H.freecamPitch - input.Delta.Y * FREECAM_MOUSE_SENSITIVITY,
+                -FREECAM_PITCH_LIMIT,
+                FREECAM_PITCH_LIMIT
+            )
+        elseif input.UserInputType == Enum.UserInputType.Touch
+            and H.freecamTouchLookActive
+            and H.freecamLastTouchPosition then
+
+            local delta = input.Position - H.freecamLastTouchPosition
+            H.freecamLastTouchPosition = input.Position
+
+            H.freecamYaw -= delta.X * FREECAM_TOUCH_SENSITIVITY
+            H.freecamPitch = math.clamp(
+                H.freecamPitch - delta.Y * FREECAM_TOUCH_SENSITIVITY,
+                -FREECAM_PITCH_LIMIT,
+                FREECAM_PITCH_LIMIT
+            )
+        end
+    end)
+    trackConnection(H.freecamInputConnection)
+
+    H.freecamTouchConnection = userInputService.TouchStarted:Connect(function(input, processed)
+        if not H.freecamEnabled or processed then
+            return
+        end
+
+        -- Do not steal touches from Roblox's joystick/buttons or our GUI.
+        if isTouchOverAnyGui(input.Position) then
+            return
+        end
+
+        H.freecamTouchLookActive = true
+        H.freecamLastTouchPosition = input.Position
+    end)
+    trackConnection(H.freecamTouchConnection)
+
+    H.freecamTouchEndedConnection = userInputService.TouchEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            H.freecamTouchLookActive = false
+            H.freecamLastTouchPosition = nil
+        end
+    end)
+    trackConnection(H.freecamTouchEndedConnection)
+
+    H.freecamConnection = runService.RenderStepped:Connect(function(dt)
+        if not H.freecamEnabled or H.closed then
+            return
+        end
+
+        local move = getFreecamMoveVector()
+
+        if move.Magnitude > 1 then
+            move = move.Unit
+        end
+
+        local rotation = CFrame.fromOrientation(H.freecamPitch, H.freecamYaw, 0)
+
+        -- The camera flies in the exact direction it is looking.
+        local worldMove = rotation:VectorToWorldSpace(move)
+
+        if worldMove.Magnitude > 1 then
+            worldMove = worldMove.Unit
+        end
+
+        if worldMove.Magnitude > 0 then
+            H.freecamCameraPosition += worldMove * H.freecamSpeed * dt
+        end
+
+        camera.CFrame = CFrame.new(H.freecamCameraPosition) * rotation
+
+        -- Keep the real character in place without modifying Humanoid controls.
+        if root.Parent then
+            root.CFrame = H.freecamSavedRootCFrame or root.CFrame
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
+    trackConnection(H.freecamConnection)
+
+    return true
+end
+
+H.freecamSpeedSlider = createSlider(
+    "Freecam Speed",
+    funContainer,
+    yOffsetFun,
+    1,
+    200,
+    H.freecamSpeed,
+    1,
+    function(val)
+        H.freecamSpeed = val
+    end
+)
+yOffsetFun = yOffsetFun + 46
+
+H.freecamBtn = createToggleButton("Freecam", funContainer, yOffsetFun)
+yOffsetFun = yOffsetFun + 46
+
+H.freecamBtn.MouseButton1Click:Connect(function()
+    if H.freecamEnabled then
+        stopFreecam()
+    else
+        if not startFreecam() then
+            H.freecamBtn.Text = "Freecam [OFF]"
+            H.freecamBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+            return
+        end
+    end
+
+    H.freecamBtn.Text = "Freecam [" .. (H.freecamEnabled and "ON" or "OFF") .. "]"
+    H.freecamBtn.TextColor3 = H.freecamEnabled
+        and Color3.fromRGB(50, 200, 50)
+        or Color3.fromRGB(200, 50, 50)
+end)
 
 -- ==================== ВКЛАДКА TROLL ====================
 local yOffsetTroll = 10
@@ -1818,48 +2199,159 @@ local function toggleFullbright()
 end
 fullbrightBtn.MouseButton1Click:Connect(toggleFullbright)
 
--- Tracers ESP
-local tracersBtn = createToggleButton("Tracers ESP", visualContainer, yOffsetVisual)
-yOffsetVisual = yOffsetVisual + 46
+-- Health ESP
+H.healthEspEnabled = false
+H.healthEspLoop = nil
 
-local tracerLines = {}
-local function clearTracers()
-    for _, line in pairs(tracerLines) do line:Remove() end
-    tracerLines = {}
+local function removeHealthEsp(p)
+    if p and p.Character then
+        local head = p.Character:FindFirstChild("Head")
+        if head then
+            local gui = head:FindFirstChild("DaryllHub_HealthESP")
+            if gui then gui:Destroy() end
+        end
+    end
 end
 
-local function toggleTracers()
-    tracersEnabled = not tracersEnabled
-    if tracersEnabled then
-        tracersBtn.Text = "Tracers ESP [ON]"
-        tracersBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-        tracersLoop = runService.RenderStepped:Connect(function()
-            clearTracers()
-            if not tracersEnabled then return end
+local function applyHealthEsp(p)
+    if p == player or not p.Character then return end
+
+    local humanoid = p.Character:FindFirstChildOfClass("Humanoid")
+    local head = p.Character:FindFirstChild("Head")
+    if not humanoid or not head then return end
+
+    local gui = head:FindFirstChild("DaryllHub_HealthESP")
+    if not gui then
+        gui = Instance.new("BillboardGui")
+        gui.Name = "DaryllHub_HealthESP"
+        gui.AlwaysOnTop = true
+        gui.Size = UDim2.new(0, 120, 0, 26)
+        gui.StudsOffset = Vector3.new(0, 3.5, 0)
+        gui.Adornee = head
+        gui.Parent = head
+
+        local label = Instance.new("TextLabel")
+        label.Name = "HealthLabel"
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextStrokeTransparency = 0
+        label.TextSize = 13
+        label.Font = Enum.Font.GothamBold
+        label.Parent = gui
+    end
+
+    local label = gui:FindFirstChild("HealthLabel")
+    if label then
+        local maxHealth = math.max(humanoid.MaxHealth, 1)
+        local health = math.clamp(humanoid.Health, 0, maxHealth)
+        label.Text = string.format("%s: %d/%d", p.Name, math.floor(health + 0.5), math.floor(maxHealth + 0.5))
+        local ratio = health / maxHealth
+        if ratio > 0.6 then
+            label.TextColor3 = Color3.fromRGB(50, 255, 50)
+        elseif ratio > 0.3 then
+            label.TextColor3 = Color3.fromRGB(255, 220, 50)
+        else
+            label.TextColor3 = Color3.fromRGB(255, 70, 70)
+        end
+    end
+end
+
+local healthEspBtn = createToggleButton("Health ESP", visualContainer, yOffsetVisual)
+yOffsetVisual = yOffsetVisual + 46
+
+healthEspBtn.MouseButton1Click:Connect(function()
+    H.healthEspEnabled = not H.healthEspEnabled
+
+    if H.healthEspEnabled then
+        healthEspBtn.Text = "Health ESP [ON]"
+        healthEspBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+
+        H.healthEspLoop = runService.Heartbeat:Connect(function()
+            if not H.healthEspEnabled then return end
             for _, p in ipairs(players:GetPlayers()) do
-                if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                    local targetPos, onScreen = camera:WorldToViewportPoint(p.Character.HumanoidRootPart.Position)
-                    if onScreen then
-                        local line = Drawing.new("Line")
-                        line.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
-                        line.To = Vector2.new(targetPos.X, targetPos.Y)
-                        line.Color = Color3.fromRGB(0, 255, 0)
-                        line.Thickness = 1.5
-                        line.Transparency = 1
-                        line.Visible = true
-                        table.insert(tracerLines, line)
-                    end
+                if p ~= player then
+                    applyHealthEsp(p)
                 end
             end
         end)
+        trackConnection(H.healthEspLoop)
     else
-        tracersBtn.Text = "Tracers ESP [OFF]"
-        tracersBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
-        if tracersLoop then tracersLoop:Disconnect() tracersLoop = nil end
-        clearTracers()
+        healthEspBtn.Text = "Health ESP [OFF]"
+        healthEspBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        if H.healthEspLoop then
+            H.healthEspLoop:Disconnect()
+            H.healthEspLoop = nil
+        end
+        for _, p in ipairs(players:GetPlayers()) do
+            removeHealthEsp(p)
+        end
+    end
+end)
+
+-- Low Graphics
+H.lowGraphicsEnabled = false
+H.lowGraphicsBackup = {}
+
+local function restoreLowGraphics()
+    for obj, data in pairs(H.lowGraphicsBackup) do
+        if obj and obj.Parent then
+            if data.Material ~= nil then pcall(function() obj.Material = data.Material end) end
+            if data.CastShadow ~= nil then pcall(function() obj.CastShadow = data.CastShadow end) end
+            if data.Enabled ~= nil then pcall(function() obj.Enabled = data.Enabled end) end
+            if data.Reflectance ~= nil then pcall(function() obj.Reflectance = data.Reflectance end) end
+        end
+    end
+    table.clear(H.lowGraphicsBackup)
+end
+
+local function enableLowGraphics()
+    restoreLowGraphics()
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            H.lowGraphicsBackup[obj] = {
+                Material = obj.Material,
+                CastShadow = obj.CastShadow,
+                Reflectance = obj.Reflectance,
+            }
+
+            pcall(function() obj.Material = Enum.Material.SmoothPlastic end)
+            pcall(function() obj.CastShadow = false end)
+            pcall(function() obj.Reflectance = 0 end)
+
+        elseif obj:IsA("ParticleEmitter")
+            or obj:IsA("Trail")
+            or obj:IsA("Beam")
+            or obj:IsA("Smoke")
+            or obj:IsA("Fire")
+            or obj:IsA("Sparkles") then
+
+            H.lowGraphicsBackup[obj] = {
+                Enabled = obj.Enabled,
+            }
+
+            pcall(function() obj.Enabled = false end)
+        end
     end
 end
-tracersBtn.MouseButton1Click:Connect(toggleTracers)
+
+local lowGraphicsBtn = createToggleButton("Low Graphics", visualContainer, yOffsetVisual)
+yOffsetVisual = yOffsetVisual + 46
+
+lowGraphicsBtn.MouseButton1Click:Connect(function()
+    H.lowGraphicsEnabled = not H.lowGraphicsEnabled
+
+    if H.lowGraphicsEnabled then
+        lowGraphicsBtn.Text = "Low Graphics [ON]"
+        lowGraphicsBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+        enableLowGraphics()
+    else
+        lowGraphicsBtn.Text = "Low Graphics [OFF]"
+        lowGraphicsBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+        restoreLowGraphics()
+    end
+end)
 
 -- FOV Changer
 createSlider("Camera FOV", visualContainer, yOffsetVisual, 30, 120, fovVal, 1, function(val)
@@ -1962,35 +2454,80 @@ end)
 yOffsetUtil = yOffsetUtil + 46
 
 -- FPS Booster
-local fpsBoosterBtn = Instance.new("TextButton")
-fpsBoosterBtn.Size = UDim2.new(0.92, 0, 0, 36)
-fpsBoosterBtn.Position = UDim2.new(0.04, 0, 0, yOffsetUtil)
-fpsBoosterBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 30)
-fpsBoosterBtn.Text = "FPS Booster"
-fpsBoosterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-fpsBoosterBtn.TextSize = 12
-fpsBoosterBtn.Font = Enum.Font.GothamBold
-fpsBoosterBtn.Parent = utilityContainer
-Instance.new("UICorner", fpsBoosterBtn).CornerRadius = UDim.new(0, 6)
-Instance.new("UIStroke", fpsBoosterBtn).Color = Color3.fromRGB(45, 45, 48)
+H.fpsBoosterEnabled = false
+H.fpsBoosterBackup = {}
 
-fpsBoosterBtn.MouseButton1Click:Connect(function()
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            obj.Material = Enum.Material.SmoothPlastic
-        elseif obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
-            obj.Enabled = false
+local function restoreFpsBooster()
+    for obj, data in pairs(H.fpsBoosterBackup) do
+        if obj and obj.Parent then
+            if data.Material ~= nil then pcall(function() obj.Material = data.Material end) end
+            if data.Enabled ~= nil then pcall(function() obj.Enabled = data.Enabled end) end
         end
     end
-    fpsBoosterBtn.Text = "FPS Boosted!"
-    fpsBoosterBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
-end)
+    table.clear(H.fpsBoosterBackup)
+end
+
+local function enableFpsBooster()
+    restoreFpsBooster()
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            H.fpsBoosterBackup[obj] = {
+                Material = obj.Material,
+            }
+            pcall(function() obj.Material = Enum.Material.SmoothPlastic end)
+
+        elseif obj:IsA("ParticleEmitter")
+            or obj:IsA("Smoke")
+            or obj:IsA("Fire")
+            or obj:IsA("Sparkles")
+            or obj:IsA("Trail")
+            or obj:IsA("Beam") then
+
+            H.fpsBoosterBackup[obj] = {
+                Enabled = obj.Enabled,
+            }
+            pcall(function() obj.Enabled = false end)
+        end
+    end
+end
+
+local fpsBoosterBtn = createToggleButton("FPS Booster", utilityContainer, yOffsetUtil)
 yOffsetUtil = yOffsetUtil + 46
+
+fpsBoosterBtn.MouseButton1Click:Connect(function()
+    H.fpsBoosterEnabled = not H.fpsBoosterEnabled
+
+    if H.fpsBoosterEnabled then
+        enableFpsBooster()
+        fpsBoosterBtn.Text = "FPS Booster [ON]"
+        fpsBoosterBtn.TextColor3 = Color3.fromRGB(50, 200, 50)
+    else
+        restoreFpsBooster()
+        fpsBoosterBtn.Text = "FPS Booster [OFF]"
+        fpsBoosterBtn.TextColor3 = Color3.fromRGB(200, 50, 50)
+    end
+end)
+
+-- ==================== CONTAINER LIMITS ====================
+local function setContainerLimit(container, contentHeight)
+    container.AutomaticCanvasSize = Enum.AutomaticSize.None
+    container.CanvasSize = UDim2.new(0, 0, 0, math.max(contentHeight, 0))
+end
+
+setContainerLimit(playerContainer, yOffset)
+setContainerLimit(antiContainer, yOffsetAnti)
+setContainerLimit(funContainer, yOffsetFun)
+setContainerLimit(trollContainer, yOffsetTroll)
+setContainerLimit(teleportContainer, yOffsetTeleport)
+setContainerLimit(visualContainer, yOffsetVisual)
+setContainerLimit(utilityContainer, yOffsetUtil)
 
 -- ==================== CLOSE / CLEANUP ====================
 local function closeScript()
     if H.closed then return end
     H.closed = true
+    pcall(stopFreecam)
 
     -- Остановить все активные функции
     godModeEnabled = false
@@ -2009,10 +2546,14 @@ local function closeScript()
     autoTeleportEnabled = false
     noFogEnabled = false
     fullbrightEnabled = false
-    tracersEnabled = false
     lightEnabled = false
     H.airWalkEnabled = false
     H.freezeCharacterEnabled = false
+    H.freecamEnabled = false
+    H.crosshairEnabled = false
+    H.healthEspEnabled = false
+    H.lowGraphicsEnabled = false
+    H.fpsBoosterEnabled = false
     spectatingPlayer = nil
 
     if infiniteJumpConnection then infiniteJumpConnection:Disconnect() infiniteJumpConnection = nil end
@@ -2022,7 +2563,6 @@ local function closeScript()
     if xrayLoop then xrayLoop:Disconnect() xrayLoop = nil end
     if noFogLoop then noFogLoop:Disconnect() noFogLoop = nil end
     if fullbrightLoop then fullbrightLoop:Disconnect() fullbrightLoop = nil end
-    if tracersLoop then tracersLoop:Disconnect() tracersLoop = nil end
     if antiFlingLoop then antiFlingLoop:Disconnect() antiFlingLoop = nil end
     if antiAfkConnection then antiAfkConnection:Disconnect() antiAfkConnection = nil end
     if antiRagdollLoop then antiRagdollLoop:Disconnect() antiRagdollLoop = nil end
@@ -2030,8 +2570,12 @@ local function closeScript()
     if antiSitLoop then antiSitLoop:Disconnect() antiSitLoop = nil end
     if antiSlowLoop then antiSlowLoop:Disconnect() antiSlowLoop = nil end
     if touchFlingConnection then touchFlingConnection:Disconnect() touchFlingConnection = nil end
+    if H.freecamConnection then H.freecamConnection:Disconnect() H.freecamConnection = nil end
+    if H.healthEspLoop then H.healthEspLoop:Disconnect() H.healthEspLoop = nil end
     touchFlingStartPos = nil
-    if H.mainPositionConnection then H.mainPositionConnection:Disconnect() H.mainPositionConnection = nil end
+    if H.crosshairGui then H.crosshairGui.Enabled = false end
+    if H.lowGraphicsEnabled or next(H.lowGraphicsBackup) then restoreLowGraphics() end
+    if H.fpsBoosterEnabled or next(H.fpsBoosterBackup) then restoreFpsBooster() end
 
     for _, connection in ipairs(H.uiConnections) do
         pcall(function() connection:Disconnect() end)
